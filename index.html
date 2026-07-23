@@ -25,7 +25,9 @@
   .fname{font-family:var(--mono);font-size:.78rem;color:var(--accent);word-break:break-all}
   input[type=file]{font:inherit;font-size:.8rem;max-width:100%}
   textarea{width:100%;font-family:var(--mono);font-size:.8rem;padding:10px;border:1px solid var(--border);
-           border-radius:9px;background:#fff;color:var(--ink);resize:vertical}
+           border-radius:9px;background:#fff;color:var(--ink);resize:vertical;min-height:5.5em}
+  #prevText{min-height:16em}
+  #meta{min-height:10em}
   textarea:focus{outline:2px solid var(--accent);outline-offset:1px}
   .note{font-size:.78rem;color:var(--muted);margin-top:6px}
   button{font:inherit;font-weight:600;cursor:pointer;border-radius:9px;border:1px solid transparent;
@@ -56,7 +58,7 @@
   <div class="card">
     <div class="step">① 歩み値CSV</div>
     <div class="filebox">
-      <input type="file" id="csv" accept=".csv,text/csv">
+      <input type="file" id="csv">
       <span class="fname" id="fcsv">未選択</span>
       <button class="ghost" id="csvClear" style="margin-left:auto">クリア</button>
     </div>
@@ -69,13 +71,16 @@
 
     <div class="step" style="margin-top:16px;display:flex;justify-content:space-between;align-items:center">
       <span>③ 前日データ（省略可）</span>
-      <button class="ghost" id="prevClear">クリア</button>
+      <span style="display:flex;gap:8px">
+        <button class="ghost" id="prevBig">表示を広げる</button>
+        <button class="ghost" id="prevClear">クリア</button>
+      </span>
     </div>
     <div class="filebox" style="margin-bottom:8px">
-      <input type="file" id="prev" accept=".md,.txt,text/markdown,text/plain">
+      <input type="file" id="prev">
       <span class="fname" id="fprev">未選択</span>
     </div>
-    <textarea id="prevText" rows="4" placeholder="ファイルを選ぶ代わりに、前日の集計結果や分析結果をそのまま貼り付けても構いません。貼り付け行（15項目）だけでも読み取ります。"></textarea>
+    <textarea id="prevText" rows="12" placeholder="ファイルを選ぶ代わりに、前日の集計結果や分析結果をそのまま貼り付けても構いません。貼り付け行（15項目）だけでも読み取ります。"></textarea>
     <div class="note">空にすると、前日比が必要な判定は「判定不能」になります。銘柄コードや日付が当日と合わない場合は集計を止めます。</div>
 
     <div class="actions" style="margin-top:16px">
@@ -137,6 +142,13 @@ $("csvClear").addEventListener("click", function(){
   setStatus("CSVをクリアしました。"); refresh();
 });
 $("metaClear").addEventListener("click", function(){ $("meta").value = ""; refresh(); });
+$("prevBig").addEventListener("click", function(){
+  var el = $("prevText");
+  var big = el.style.minHeight === "32em";
+  el.style.minHeight = big ? "16em" : "32em";
+  $("prevBig").textContent = big ? "表示を広げる" : "表示を戻す";
+});
+
 $("prevClear").addEventListener("click", function(){
   $("prev").value = ""; $("prevText").value = ""; $("fprev").textContent = "未選択";
   window.__prevName = "";
@@ -168,7 +180,7 @@ $("run").addEventListener("click", function(){
     try{
       pyodide.FS.writeFile("/data.csv", csvBytes);
       pyodide.FS.writeFile("/meta.txt", new TextEncoder().encode($("meta").value));
-      var argv = ["tick_value_summary.py", "/data.csv", "--meta=/meta.txt"];
+      var argv = ["tick_value_summary.py", "/data.csv", "--meta=/meta.txt", "--markers"];
       var pv = $("prevText").value.trim();
       if(pv){
         pyodide.FS.writeFile("/prev.md", new TextEncoder().encode(pv));
