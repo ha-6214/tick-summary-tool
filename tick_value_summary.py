@@ -54,7 +54,7 @@ from collections import defaultdict
 # ============================================================
 # ルール版番号（出力・ファイル名の照合に使用）
 # ============================================================
-RULE_VERSION = "v1.8"
+RULE_VERSION = "v1.9"
 
 # ============================================================
 # 境界の定義（プロンプトの文言をそのまま数式にしたもの。変更しないこと）
@@ -135,6 +135,24 @@ META_KEYS = {
 }
 
 
+def norm_key(k):
+    """項目名の表記ゆれを吸収する（「の」「・」空白を取り除いて比べる）"""
+    t = str(k)
+    for ch in ['の', '・', ' ', '　', '*', '＊', '-', '−']:
+        t = t.replace(ch, '')
+    return t
+
+
+# 表記ゆれを吸収したうえで照合するための対応表
+META_KEYS_NORM = dict((norm_key(k), v) for k, v in META_KEYS.items())
+META_KEYS_NORM.update({
+    '銘柄名': 'name', '名称': 'name', 'コード': 'code', '証券コード': 'code',
+    '高値日付': 'yearhigh_date', '年初来高値日': 'yearhigh_date',
+    '信用売残': 'margin_sell', '信用買残': 'margin_buy',
+    '取引日': 'date', '対象日': 'date',
+})
+
+
 def parse_meta_text(text):
     """銘柄情報テキストを読み取る。戻り値は (値の辞書, 無視した項目名, 重複した項目名)"""
     got, ignored, dup = {}, [], []
@@ -152,11 +170,12 @@ def parse_meta_text(text):
         key, val = line.split(sep, 1)
         key = key.strip().lstrip('-・*＊ ').replace('*', '').strip()
         val = val.strip()
-        if key not in META_KEYS:
+        nk = norm_key(key)
+        if nk not in META_KEYS_NORM:
             if key:
                 ignored.append(key)
             continue
-        k = META_KEYS[key]
+        k = META_KEYS_NORM[nk]
         # 「年初来高値」の行に日付が書かれている場合は、日付として扱う
         if k == 'yearhigh' and not clean_num(val).replace('.', '', 1).isdigit() \
                 and norm_date(val) is not None:
