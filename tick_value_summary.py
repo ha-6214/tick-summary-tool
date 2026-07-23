@@ -39,7 +39,7 @@ from collections import defaultdict
 # ============================================================
 # ルール版番号（出力・ファイル名の照合に使用）
 # ============================================================
-RULE_VERSION = "v1.3"
+RULE_VERSION = "v1.5"
 
 # ============================================================
 # 境界の定義（プロンプトの文言をそのまま数式にしたもの。変更しないこと）
@@ -115,8 +115,8 @@ META_KEYS = {
 
 
 def parse_meta_text(text):
-    """銘柄情報テキストを読み取る。戻り値は (値の辞書, 無視した項目名の一覧)"""
-    got, ignored = {}, []
+    """銘柄情報テキストを読み取る。戻り値は (値の辞書, 無視した項目名, 重複した項目名)"""
+    got, ignored, dup = {}, [], []
     for raw in text.splitlines():
         line = raw.strip()
         if not line or line.startswith('#') or line.startswith('```'):
@@ -129,13 +129,22 @@ def parse_meta_text(text):
         if sep is None:
             continue
         key, val = line.split(sep, 1)
-        key = key.strip().lstrip('-・').strip()
+        key = key.strip().lstrip('-・*＊ ').replace('*', '').strip()
         val = val.strip()
-        if key in META_KEYS:
-            got[META_KEYS[key]] = val
-        elif key:
-            ignored.append(key)
-    return got, ignored
+        if key not in META_KEYS:
+            if key:
+                ignored.append(key)
+            continue
+        k = META_KEYS[key]
+        # 「年初来高値」の行に日付が書かれている場合は、日付として扱う
+        if k == 'yearhigh' and not clean_num(val).replace('.', '', 1).isdigit() \
+                and norm_date(val) is not None:
+            k = 'yearhigh_date'
+        if k in got:
+            dup.append(key)
+            continue
+        got[k] = val
+    return got, ignored, dup
 
 
 def find_paste_row(lines):
@@ -193,6 +202,8 @@ def parse_prev_md(text):
         if d:
             head['date'] = date_iso(d)
     if not head.get('code'):
+        head['code'] = str(head.get('ticker', '')).strip()
+    if not head.get('code'):
         head['code'] = find_prev_code(text)
     return head, find_paste_row(lines)
 
@@ -214,13 +225,14 @@ for arg in sys.argv[2:]:
 
 # --- 銘柄情報テキスト（ファイル指定）の読み取り ---
 META_IGNORED = []
+META_DUP = []
 if opts.get('meta'):
     try:
         with open(opts['meta'], encoding='utf-8-sig') as f:
             meta_text = f.read()
     except OSError:
         die("銘柄情報のテキストを読み取れませんでした。")
-    meta_got, META_IGNORED = parse_meta_text(meta_text)
+    meta_got, META_IGNORED, META_DUP = parse_meta_text(meta_text)
     for k, v in meta_got.items():
         opts.setdefault(k, v)
 
@@ -228,7 +240,10 @@ if opts.get('meta'):
 _yh = pos[0] if pos else opts.get('yearhigh', '')
 _yh = clean_num(_yh)
 if not _yh.replace('.', '', 1).isdigit():
-    die("年初来高値を読み取れませんでした。銘柄情報に「年初来高値: 3019」の行があるか確認してください。")
+    _seen = opts.get('yearhigh', '')
+    die("年初来高値を数値として読み取れませんでした（読み取った内容: 「%s」）。\n"
+        "銘柄情報の「年初来高値」の行に、数値だけが書かれているか確認してください。\n"
+        "日付を書く行の項目名は「年初来高値の日付」です。" % (_seen if _seen else '空欄'))
 YEAR_HIGH = int(float(_yh))                             # 年初来高値（円）
 
 THRESHOLD_AMOUNT = int(opts.get('threshold', 5_000_000))  # 機関/個人の閾値（円）
@@ -293,6 +308,14 @@ def to_seconds(t):
     h, m, s = map(int, t.split(':'))
     return h * 3600 + m * 60 + s
 
+def to_num(s):
+    """数値文字列を数に変換する。小数の値段（0.5円刻みなど）にも対応し、
+    整数で表せる場合は整数として返す"""
+    v = float(str(s).replace(',', '').replace('　', '').strip())
+    iv = int(v)
+    return iv if v == iv else v
+
+
 def format_number(n):
     """数値をカンマ区切り文字列に"""
     return f"{n:,}"
@@ -305,13 +328,27 @@ def main():
     raw_rows = []
     with open(CSV_PATH, 'r', encoding='utf-8-sig') as f:
         reader = csv.DictReader(f)
-        for r in reader:
-            raw_rows.append({
-                'price':  int(r['値段']),
-                'volume': int(r['株数']),
-                'amount': int(r['金額']),
-                'time':   r['時刻'].strip()
-            })
+        if reader.fieldnames is None:
+            die("CSVの中身が空でした。")
+        need = ['値段', '株数', '金額', '時刻']
+        missing = [c for c in need if c not in reader.fieldnames]
+        if missing:
+            die("CSVの見出しに次の項目が見つかりません: %s\n読み取った見出し: %s"
+                % ('、'.join(missing), '、'.join([c for c in reader.fieldnames if c])))
+        for i, r in enumerate(reader, start=2):
+            try:
+                raw_rows.append({
+                    'price':  to_num(r['値段']),
+                    'volume': to_num(r['株数']),
+                    'amount': to_num(r['金額']),
+                    'time':   r['時刻'].strip()
+                })
+            except (ValueError, TypeError, AttributeError):
+                die("CSVの%d行目を数値として読み取れませんでした。\n"
+                    "値段=「%s」 株数=「%s」 金額=「%s」 時刻=「%s」"
+                    % (i, r.get('値段'), r.get('株数'), r.get('金額'), r.get('時刻')))
+    if not raw_rows:
+        die("CSVに約定データの行がありませんでした。")
 
     # 時系列順に並び替え（CSVは降順の場合がある）
     # 最初の行と最後の行の時刻を比較
@@ -912,6 +949,8 @@ def main():
     readback.append("信用: 売れ残%s ／ 買い残%s ／ 倍率%s" % (INFO_MARGIN_SELL, INFO_MARGIN_BUY, INFO_MARGIN_RATIO))
     if META_IGNORED:
         readback.append("使わなかった項目: %s" % '、'.join(META_IGNORED))
+    if META_DUP:
+        readback.append("注意: 同じ項目名が重複していました（先に書かれた方を使用）: %s" % '、'.join(META_DUP))
     if PREV is None:
         readback.append("前日データ: なし（前日比の判定は判定不能）")
     else:
