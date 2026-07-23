@@ -33,12 +33,13 @@
 import csv
 import sys
 import os
+import re
 from collections import defaultdict
 
 # ============================================================
 # ルール版番号（出力・ファイル名の照合に使用）
 # ============================================================
-RULE_VERSION = "v1.0"
+RULE_VERSION = "v1.1"
 
 # ============================================================
 # 境界の定義（プロンプトの文言をそのまま数式にしたもの。変更しないこと）
@@ -137,8 +138,47 @@ def parse_meta_text(text):
     return got, ignored
 
 
+def find_paste_row(lines):
+    """15項目の貼り付け行を探す。見出しの有無にかかわらず読み取る"""
+    def as_nums(line):
+        parts = line.replace('\t', ' ').split()
+        if len(parts) != 15:
+            return None
+        try:
+            return [float(p.replace(',', '')) for p in parts]
+        except ValueError:
+            return None
+    for i, line in enumerate(lines):
+        if '貼り付け' in line:
+            for cand in lines[i + 1:i + 6]:
+                nums = as_nums(cand)
+                if nums:
+                    return nums
+    for line in lines:
+        nums = as_nums(line)
+        if nums:
+            return nums
+    return None
+
+
+def find_prev_date(text):
+    """本文から日付を推定する（見出し部分がない前日ファイル向け）"""
+    m = re.search(r'日付[^0-9]{0,6}(\d{4})[年/\-.](\d{1,2})[月/\-.](\d{1,2})', text)
+    if not m:
+        m = re.search(r'(\d{4})[年/\-.](\d{1,2})[月/\-.](\d{1,2})', text)
+    if not m:
+        return None
+    return norm_date('%s-%s-%s' % m.groups())
+
+
+def find_prev_code(text):
+    """本文から銘柄コードを推定する（見出し部分がない前日ファイル向け）"""
+    m = re.search(r'銘柄[^0-9A-Za-z]{0,8}([0-9][0-9A-Za-z]{3})', text)
+    return m.group(1) if m else ''
+
+
 def parse_prev_md(text):
-    """前日MDを読み取る。戻り値は (見出し部分の辞書, 貼り付け行の15数値)"""
+    """前日データを読み取る。戻り値は (見出し部分の辞書, 貼り付け行の15数値)"""
     head = {}
     lines = text.splitlines()
     if lines and lines[0].strip() == '---':
@@ -148,21 +188,13 @@ def parse_prev_md(text):
             if ':' in line:
                 k, v = line.split(':', 1)
                 head[k.strip()] = v.strip()
-    nums = None
-    for i, line in enumerate(lines):
-        if '貼り付け用' in line:
-            for cand in lines[i + 1:i + 6]:
-                parts = cand.replace('\t', ' ').split()
-                if len(parts) == 15:
-                    try:
-                        nums = [float(p.replace(',', '')) for p in parts]
-                    except ValueError:
-                        nums = None
-                    if nums:
-                        break
-            if nums:
-                break
-    return head, nums
+    if not head.get('date'):
+        d = find_prev_date(text)
+        if d:
+            head['date'] = date_iso(d)
+    if not head.get('code'):
+        head['code'] = find_prev_code(text)
+    return head, find_paste_row(lines)
 
 
 if len(sys.argv) < 2:
@@ -222,28 +254,31 @@ if not INFO_CODE:
 #   銘柄コードまたは日付が合わない場合は集計を止める。
 # ============================================================
 PREV = None
+PREV_WARN = []
 PREV_NAME = opts.get('prev_name', '')
 if opts.get('prev'):
     try:
         with open(opts['prev'], encoding='utf-8-sig') as f:
             prev_text = f.read()
     except OSError:
-        die("前日ファイルを読み取れませんでした。")
+        die("前日データを読み取れませんでした。")
     prev_head, prev_nums = parse_prev_md(prev_text)
     if prev_nums is None:
-        die("前日ファイルの中に貼り付け行（15項目）が見つかりませんでした。")
+        die("前日データの中に貼り付け行（15項目）が見つかりませんでした。数値が15個そろっているか確認してください。")
     prev_code = str(prev_head.get('code', '')).strip()
     if prev_code and prev_code != str(INFO_CODE).strip():
-        die("前日ファイルの銘柄コードが違います（前日 %s / 当日 %s）。集計を中止しました。"
+        die("前日データの銘柄コードが違います（前日 %s / 当日 %s）。集計を中止しました。"
             % (prev_code, INFO_CODE))
     prev_dt = norm_date(prev_head.get('date', ''))
-    if prev_dt is None:
-        die("前日ファイルの日付を読み取れませんでした。集計を中止しました。")
-    if prev_dt >= TODAY_DT:
-        die("前日ファイルの日付が当日以降です（前日 %s / 当日 %s）。集計を中止しました。"
+    if prev_dt is not None and prev_dt >= TODAY_DT:
+        die("前日データの日付が当日以降です（前日 %s / 当日 %s）。集計を中止しました。"
             % (date_iso(prev_dt), date_iso(TODAY_DT)))
+    if prev_dt is None:
+        PREV_WARN.append("前日データの日付を読み取れませんでした（照合できていません）")
+    if not prev_code:
+        PREV_WARN.append("前日データの銘柄コードを読み取れませんでした（照合できていません）")
     PREV = {
-        'date': date_iso(prev_dt),
+        'date': date_iso(prev_dt) if prev_dt else '日付不明',
         'inst_buy':  r1(prev_nums[2] + prev_nums[6]),
         'inst_sell': r1(prev_nums[3] + prev_nums[7]),
         'ind_buy':   r1(prev_nums[10]),
@@ -850,7 +885,7 @@ def main():
     if PREV is None:
         output.append("前日ファイルなし（前日比が必要な判定は判定不能）")
     else:
-        output.append("%s（%s ／ %s）" % (PREV_NAME or '前日ファイル', PREV['date'], INFO_CODE))
+        output.append("%s（%s ／ %s）" % (PREV_NAME or '貼り付け', PREV['date'], INFO_CODE))
 
     output.append("")
     output.append("=" * 60)
@@ -880,7 +915,9 @@ def main():
     if PREV is None:
         readback.append("前日データ: なし（前日比の判定は判定不能）")
     else:
-        readback.append("前日データ: %s（%s）" % (PREV_NAME or '前日ファイル', PREV['date']))
+        readback.append("前日データ: %s（%s）" % (PREV_NAME or '貼り付け', PREV['date']))
+        for w in PREV_WARN:
+            readback.append("注意: %s" % w)
 
     print("<<<FILENAME>>>")
     print("summary-%s-%s.md" % (INFO_CODE, date_compact(TODAY_DT)))

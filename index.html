@@ -58,17 +58,25 @@
     <div class="filebox">
       <input type="file" id="csv" accept=".csv,text/csv">
       <span class="fname" id="fcsv">未選択</span>
+      <button class="ghost" id="csvClear" style="margin-left:auto">クリア</button>
     </div>
 
-    <div class="step" style="margin-top:16px">② 銘柄情報（そのまま貼り付け）</div>
+    <div class="step" style="margin-top:16px;display:flex;justify-content:space-between;align-items:center">
+      <span>② 銘柄情報（そのまま貼り付け）</span>
+      <button class="ghost" id="metaClear">クリア</button>
+    </div>
     <textarea id="meta" rows="9" placeholder="日付: 2026年7月22日&#10;銘柄コード: 5802&#10;銘柄名称: 住友電工&#10;年初来高値: 3019&#10;年初来高値の日付: 2026年6月30日&#10;信用売れ残: 978500&#10;信用買い残: 11451200&#10;信用倍率: 11.70"></textarea>
 
-    <div class="step" style="margin-top:16px">③ 前日の集計結果（.md・省略可）</div>
-    <div class="filebox">
+    <div class="step" style="margin-top:16px;display:flex;justify-content:space-between;align-items:center">
+      <span>③ 前日データ（省略可）</span>
+      <button class="ghost" id="prevClear">クリア</button>
+    </div>
+    <div class="filebox" style="margin-bottom:8px">
       <input type="file" id="prev" accept=".md,.txt,text/markdown,text/plain">
       <span class="fname" id="fprev">未選択</span>
     </div>
-    <div class="note">省略すると、前日比が必要な判定は「判定不能」になります。銘柄コードや日付が当日と合わない場合は集計を止めます。</div>
+    <textarea id="prevText" rows="4" placeholder="ファイルを選ぶ代わりに、前日の集計結果や分析結果をそのまま貼り付けても構いません。貼り付け行（15項目）だけでも読み取ります。"></textarea>
+    <div class="note">空にすると、前日比が必要な判定は「判定不能」になります。銘柄コードや日付が当日と合わない場合は集計を止めます。</div>
 
     <div class="actions" style="margin-top:16px">
       <button class="run" id="run" disabled>集計する</button>
@@ -91,7 +99,7 @@
 
 <script src="./pyodide/pyodide.js"></script>
 <script>
-var PY_SRC = null, pyodide = null, csvBytes = null, prevText = null, outName = "summary.md";
+var PY_SRC = null, pyodide = null, csvBytes = null, outName = "summary.md";
 var $ = function(id){ return document.getElementById(id); };
 
 function setStatus(msg, cls){ $("status").textContent = msg; $("status").className = "status" + (cls ? " " + cls : ""); }
@@ -108,13 +116,31 @@ $("csv").addEventListener("change", async function(e){
 
 $("prev").addEventListener("change", async function(e){
   var f = e.target.files[0];
-  if(!f){ prevText = null; outName = "summary.md"; $("fprev").textContent = "未選択"; return; }
+  if(!f){ return; }
   $("fprev").textContent = f.name;
-  prevText = await f.text();
+  $("prevText").value = await f.text();
   window.__prevName = f.name;
 });
 
+$("prevText").addEventListener("input", function(){
+  if($("fprev").textContent !== "未選択"){
+    $("fprev").textContent = "未選択（貼り付けを使用）";
+    window.__prevName = "";
+  }
+});
+
 $("meta").addEventListener("input", refresh);
+
+$("csvClear").addEventListener("click", function(){
+  $("csv").value = ""; csvBytes = null; $("fcsv").textContent = "未選択";
+  setStatus("CSVをクリアしました。"); refresh();
+});
+$("metaClear").addEventListener("click", function(){ $("meta").value = ""; refresh(); });
+$("prevClear").addEventListener("click", function(){
+  $("prev").value = ""; $("prevText").value = ""; $("fprev").textContent = "未選択";
+  window.__prevName = "";
+  setStatus("前日データをクリアしました。当日分のみで集計します。");
+});
 
 async function init(){
   try{
@@ -142,10 +168,11 @@ $("run").addEventListener("click", function(){
       pyodide.FS.writeFile("/data.csv", csvBytes);
       pyodide.FS.writeFile("/meta.txt", new TextEncoder().encode($("meta").value));
       var argv = ["tick_value_summary.py", "/data.csv", "--meta=/meta.txt"];
-      if(prevText !== null){
-        pyodide.FS.writeFile("/prev.md", new TextEncoder().encode(prevText));
+      var pv = $("prevText").value.trim();
+      if(pv){
+        pyodide.FS.writeFile("/prev.md", new TextEncoder().encode(pv));
         argv.push("--prev=/prev.md");
-        argv.push("--prev_name=" + (window.__prevName || "前日ファイル"));
+        if(window.__prevName){ argv.push("--prev_name=" + window.__prevName); }
       }
       pyodide.globals.set("_ARGV", argv);
       pyodide.globals.set("_SRC", PY_SRC);
