@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>歩み値集計</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --card:#fff; --ink:#1a1f2b; --muted:#667085; --border:#e3e6eb;
+    --accent:#3b5bdb; --accent-h:#2f4bc0; --ok:#2f9e6f; --warn:#c0492f; --amber:#8a6d1f;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,"Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+       line-height:1.6;-webkit-text-size-adjust:100%;padding:20px 14px 60px}
+  .wrap{max-width:760px;margin:0 auto}
+  .head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+  h1{font-size:1.2rem;margin:0;font-weight:600}
+  .ver{font-family:var(--mono);font-size:.75rem;color:var(--muted)}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px}
+  .step{font-size:.82rem;color:var(--muted);font-weight:600;margin-bottom:6px}
+  .filebox{border:1.5px dashed var(--border);border-radius:10px;padding:12px;background:#fafbfc;
+           display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .fname{font-family:var(--mono);font-size:.78rem;color:var(--accent);word-break:break-all}
+  input[type=file]{font:inherit;font-size:.8rem;max-width:100%}
+  textarea{width:100%;font-family:var(--mono);font-size:.8rem;padding:10px;border:1px solid var(--border);
+           border-radius:9px;background:#fff;color:var(--ink);resize:vertical}
+  textarea:focus{outline:2px solid var(--accent);outline-offset:1px}
+  .note{font-size:.78rem;color:var(--muted);margin-top:6px}
+  button{font:inherit;font-weight:600;cursor:pointer;border-radius:9px;border:1px solid transparent;
+         padding:11px 20px;transition:background .15s,opacity .15s}
+  .run{background:var(--accent);color:#fff;font-size:.98rem}
+  .run:hover:not(:disabled){background:var(--accent-h)}
+  .run:disabled{opacity:.45;cursor:default}
+  .ghost{background:#fff;border-color:var(--border);color:var(--ink);padding:8px 14px;font-size:.84rem}
+  .actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .status{font-size:.84rem;color:var(--muted)}
+  .status.ok{color:var(--ok)} .status.err{color:var(--warn);white-space:pre-wrap}
+  .readback{background:#f7f9fc;border-radius:9px;padding:10px 12px;margin-top:10px;font-size:.8rem;
+            white-space:pre-wrap;font-family:var(--mono);color:var(--ink)}
+  .rb-warn{color:var(--amber)}
+  .rhead{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap}
+  pre.out{background:#0f1420;color:#e6e9f0;font-family:var(--mono);font-size:.76rem;line-height:1.55;
+          padding:14px;border-radius:10px;overflow:auto;max-height:56vh;margin:0;white-space:pre}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <h1>歩み値集計</h1>
+    <span class="ver" id="ver">ルール版 読み込み中</span>
+  </div>
+
+  <div class="card">
+    <div class="step">① 歩み値CSV</div>
+    <div class="filebox">
+      <input type="file" id="csv" accept=".csv,text/csv">
+      <span class="fname" id="fcsv">未選択</span>
+    </div>
+
+    <div class="step" style="margin-top:16px">② 銘柄情報（そのまま貼り付け）</div>
+    <textarea id="meta" rows="9" placeholder="日付: 2026年7月22日&#10;銘柄コード: 5802&#10;銘柄名称: 住友電工&#10;年初来高値: 3019&#10;年初来高値の日付: 2026年6月30日&#10;信用売れ残: 978500&#10;信用買い残: 11451200&#10;信用倍率: 11.70"></textarea>
+
+    <div class="step" style="margin-top:16px">③ 前日の集計結果（.md・省略可）</div>
+    <div class="filebox">
+      <input type="file" id="prev" accept=".md,.txt,text/markdown,text/plain">
+      <span class="fname" id="fprev">未選択</span>
+    </div>
+    <div class="note">省略すると、前日比が必要な判定は「判定不能」になります。銘柄コードや日付が当日と合わない場合は集計を止めます。</div>
+
+    <div class="actions" style="margin-top:16px">
+      <button class="run" id="run" disabled>集計する</button>
+      <span class="status" id="status">実行環境を準備しています…</span>
+    </div>
+    <div class="readback hidden" id="readback"></div>
+  </div>
+
+  <div class="card hidden" id="resCard">
+    <div class="rhead">
+      <span class="step" style="margin:0">集計結果</span>
+      <span style="display:flex;gap:8px">
+        <button class="ghost" id="copy">コピー</button>
+        <button class="ghost" id="save">MDで保存</button>
+      </span>
+    </div>
+    <pre class="out" id="out"></pre>
+  </div>
+</div>
+
+<script src="./pyodide/pyodide.js"></script>
+<script>
+var PY_SRC = null, pyodide = null, csvBytes = null, prevText = null, outName = "summary.md";
+var $ = function(id){ return document.getElementById(id); };
+
+function setStatus(msg, cls){ $("status").textContent = msg; $("status").className = "status" + (cls ? " " + cls : ""); }
+
+function refresh(){ $("run").disabled = !(pyodide && PY_SRC && csvBytes && $("meta").value.trim()); }
+
+$("csv").addEventListener("change", async function(e){
+  var f = e.target.files[0];
+  if(!f){ csvBytes = null; $("fcsv").textContent = "未選択"; refresh(); return; }
+  $("fcsv").textContent = f.name;
+  csvBytes = new Uint8Array(await f.arrayBuffer());
+  refresh();
+});
+
+$("prev").addEventListener("change", async function(e){
+  var f = e.target.files[0];
+  if(!f){ prevText = null; outName = "summary.md"; $("fprev").textContent = "未選択"; return; }
+  $("fprev").textContent = f.name;
+  prevText = await f.text();
+  window.__prevName = f.name;
+});
+
+$("meta").addEventListener("input", refresh);
+
+async function init(){
+  try{
+    setStatus("実行環境を読み込んでいます…");
+    pyodide = await loadPyodide({ indexURL: "./pyodide/" });
+    var r = await fetch("./tick_value_summary.py?v=" + Date.now());
+    if(!r.ok){ throw new Error("集計スクリプトを読み込めませんでした。"); }
+    PY_SRC = await r.text();
+    var m = PY_SRC.match(/RULE_VERSION\s*=\s*"([^"]+)"/);
+    $("ver").textContent = "ルール版 " + (m ? m[1] : "不明");
+    setStatus("準備完了。CSVと銘柄情報を入れてください。", "ok");
+    refresh();
+  }catch(err){
+    setStatus("準備に失敗しました。\n" + (err && err.message ? err.message : err), "err");
+  }
+}
+
+$("run").addEventListener("click", function(){
+  if(!pyodide || !csvBytes) return;
+  $("run").disabled = true;
+  setStatus("集計しています…");
+  $("readback").classList.add("hidden");
+  setTimeout(function(){
+    try{
+      pyodide.FS.writeFile("/data.csv", csvBytes);
+      pyodide.FS.writeFile("/meta.txt", new TextEncoder().encode($("meta").value));
+      var argv = ["tick_value_summary.py", "/data.csv", "--meta=/meta.txt"];
+      if(prevText !== null){
+        pyodide.FS.writeFile("/prev.md", new TextEncoder().encode(prevText));
+        argv.push("--prev=/prev.md");
+        argv.push("--prev_name=" + (window.__prevName || "前日ファイル"));
+      }
+      pyodide.globals.set("_ARGV", argv);
+      pyodide.globals.set("_SRC", PY_SRC);
+      var res = pyodide.runPython([
+        "import sys, io",
+        "sys.argv = list(_ARGV)",
+        "_b = io.StringIO(); _s = sys.stdout; sys.stdout = _b",
+        "try:",
+        "    exec(compile(_SRC, 'tick_value_summary.py', 'exec'), {'__name__': '__main__'})",
+        "except SystemExit:",
+        "    pass",
+        "finally:",
+        "    sys.stdout = _s",
+        "_b.getvalue()"
+      ].join("\n"));
+      show(res);
+    }catch(err){
+      setStatus("集計中にエラーが発生しました。\n" + (err && err.message ? err.message : err), "err");
+    }finally{
+      refresh();
+    }
+  }, 30);
+});
+
+function show(res){
+  if(res.indexOf("<<<ERROR>>>") === 0){
+    setStatus("集計を中止しました。\n" + res.replace("<<<ERROR>>>", "").trim(), "err");
+    $("resCard").classList.add("hidden");
+    return;
+  }
+  var i1 = res.indexOf("<<<READBACK>>>"), i2 = res.indexOf("<<<BODY>>>");
+  if(i1 < 0 || i2 < 0){ setStatus("出力の形式が想定と違います。", "err"); return; }
+  outName = res.substring(res.indexOf("\n") + 1, i1).trim() || "summary.md";
+  var rb = res.substring(i1 + 14, i2).trim();
+  var body = res.substring(i2 + 10).replace(/^\n/, "");
+  var el = $("readback");
+  el.textContent = rb;
+  el.className = "readback" + (rb.indexOf("使わなかった項目") >= 0 || rb.indexOf("なし（") >= 0 ? " rb-warn" : "");
+  el.classList.remove("hidden");
+  $("out").textContent = body;
+  $("resCard").classList.remove("hidden");
+  $("save").textContent = outName + " で保存";
+  setStatus("集計が完了しました。", "ok");
+}
+
+$("copy").addEventListener("click", async function(){
+  try{
+    await navigator.clipboard.writeText($("out").textContent);
+    $("copy").textContent = "コピーしました";
+  }catch(e){
+    var r = document.createRange(); r.selectNodeContents($("out"));
+    var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+    $("copy").textContent = "選択しました";
+  }
+  setTimeout(function(){ $("copy").textContent = "コピー"; }, 1600);
+});
+
+$("save").addEventListener("click", function(){
+  var blob = new Blob([$("out").textContent], {type:"text/markdown;charset=utf-8"});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement("a");
+  a.href = url; a.download = outName; a.click();
+  URL.revokeObjectURL(url);
+});
+
+init();
+</script>
+</body>
+</html>
