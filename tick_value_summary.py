@@ -54,7 +54,7 @@ from collections import defaultdict
 # ============================================================
 # ルール版番号（出力・ファイル名の照合に使用）
 # ============================================================
-RULE_VERSION = "v1.9"
+RULE_VERSION = "v1.10"
 
 # ============================================================
 # 境界の定義（プロンプトの文言をそのまま数式にしたもの。変更しないこと）
@@ -85,6 +85,14 @@ def die(msg):
 def r1(x):
     """小数第1位に丸める"""
     return round(float(x) + 0.0, 1)
+
+
+def unquote(v):
+    """前後の引用符（' や "）を取り除く。YAMLでクオートされた値に対応する"""
+    v = str(v).strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in ("'", '"'):
+        v = v[1:-1].strip()
+    return v
 
 
 def norm_date(s):
@@ -236,7 +244,7 @@ def parse_prev_md(text):
                 break
             if ':' in line:
                 k, v = line.split(':', 1)
-                head[k.strip()] = v.strip()
+                head[k.strip()] = unquote(v.strip())
     if not head.get('date'):
         d = find_prev_date(text)
         if d:
