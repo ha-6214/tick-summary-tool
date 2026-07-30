@@ -96,7 +96,14 @@
 
   <div class="card hidden" id="resCard">
     <div class="rhead">
-      <span class="step" style="margin:0">集計結果</span>
+      <span class="step" style="margin:0;display:flex;align-items:center;gap:8px">
+        集計結果
+        <span id="histNav" class="hidden" style="display:inline-flex;align-items:center;gap:6px">
+          <button class="ghost" id="histPrev" style="padding:4px 10px">◀ 1つ前</button>
+          <span id="histPos" style="font-size:.8rem;color:var(--muted)"></span>
+          <button class="ghost" id="histNext" style="padding:4px 10px">次 ▶</button>
+        </span>
+      </span>
       <span style="display:flex;gap:8px">
         <button class="ghost" id="copy">コピー</button>
         <button class="ghost hidden" id="share">共有</button>
@@ -121,6 +128,7 @@ $("csv").addEventListener("change", async function(e){
   if(!f){ csvBytes = null; $("fcsv").textContent = "未選択"; refresh(); return; }
   $("fcsv").textContent = f.name;
   csvBytes = new Uint8Array(await f.arrayBuffer());
+  window.__csvName = f.name;
   refresh();
 });
 
@@ -195,6 +203,7 @@ $("run").addEventListener("click", function(){
       pyodide.FS.writeFile("/data.csv", csvBytes);
       pyodide.FS.writeFile("/meta.txt", new TextEncoder().encode($("meta").value));
       var argv = ["tick_value_summary.py", "/data.csv", "--meta=/meta.txt", "--markers"];
+      if(window.__csvName){ argv.push("--csv_name=" + window.__csvName); }
       var pv = $("prevText").value.trim();
       if(pv){
         pyodide.FS.writeFile("/prev.md", new TextEncoder().encode(pv));
@@ -224,63 +233,56 @@ $("run").addEventListener("click", function(){
   }, 30);
 });
 
+var HISTORY = [];      // このタブを開いている間だけの履歴
+var histIdx = -1;      // 今表示している履歴の位置
+
+function render(item){
+  $("out").textContent = item.body;
+  var el = $("readback");
+  el.textContent = item.readback;
+  el.className = "readback" + (item.readback.indexOf("使わなかった項目") >= 0 || item.readback.indexOf("なし（") >= 0 ? " rb-warn" : "");
+  el.classList.remove("hidden");
+  outName = item.name;
+  $("save").textContent = outName + " で保存";
+  $("resCard").classList.remove("hidden");
+  updateHistNav();
+}
+
+function updateHistNav(){
+  var n = HISTORY.length;
+  if(n <= 1){ $("histNav").classList.add("hidden"); return; }
+  $("histNav").classList.remove("hidden");
+  $("histPos").textContent = (histIdx + 1) + " / " + n + " 件目";
+  $("histPrev").disabled = (histIdx <= 0);
+  $("histNext").disabled = (histIdx >= n - 1);
+}
+
 function show(res){
   if(res.indexOf("<<<ERROR>>>") === 0){
     setStatus("集計を中止しました。\n" + res.replace("<<<ERROR>>>", "").trim(), "err");
-    $("resCard").classList.add("hidden");
-    return;
+    return;   // エラー時は履歴に積まず、直前の表示を残す
   }
   var i1 = res.indexOf("<<<READBACK>>>"), i2 = res.indexOf("<<<BODY>>>");
   if(i1 < 0 || i2 < 0){ setStatus("出力の形式が想定と違います。", "err"); return; }
-  outName = res.substring(res.indexOf("\n") + 1, i1).trim() || "summary.md";
-  var rb = res.substring(i1 + 14, i2).trim();
-  var body = res.substring(i2 + 10).replace(/^\n/, "");
-  var el = $("readback");
-  el.textContent = rb;
-  el.className = "readback" + (rb.indexOf("使わなかった項目") >= 0 || rb.indexOf("なし（") >= 0 ? " rb-warn" : "");
-  el.classList.remove("hidden");
-  $("out").textContent = body;
-  $("resCard").classList.remove("hidden");
-  $("save").textContent = outName + " で保存";
+  var item = {
+    name: (res.substring(res.indexOf("\n") + 1, i1).trim() || "summary.md"),
+    readback: res.substring(i1 + 14, i2).trim(),
+    body: res.substring(i2 + 10).replace(/^\n/, "")
+  };
+  HISTORY.push(item);
+  if(HISTORY.length > 50){ HISTORY.shift(); }   // 上限50件（タブを閉じると消える）
+  histIdx = HISTORY.length - 1;
+  render(item);
   setStatus("集計が完了しました。", "ok");
+  $("resCard").scrollIntoView({behavior:"smooth", block:"start"});
 }
 
-function legacyCopy(text){
-  var el = document.createElement("textarea");
-  el.value = text;
-  el.contentEditable = true;
-  el.readOnly = false;
-  el.style.position = "fixed";
-  el.style.top = "0";
-  el.style.left = "0";
-  el.style.width = "1px";
-  el.style.height = "1px";
-  el.style.opacity = "0";
-  document.body.appendChild(el);
-  var ok = false;
-  try{
-    var range = document.createRange();
-    range.selectNodeContents(el);
-    var sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-    el.setSelectionRange(0, 999999);
-    ok = document.execCommand("copy");
-  }catch(e){ ok = false; }
-  document.body.removeChild(el);
-  return ok;
-}
-
-function selectOutput(){
-  try{
-    var r = document.createRange();
-    r.selectNodeContents($("out"));
-    var sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(r);
-    return true;
-  }catch(e){ return false; }
-}
+$("histPrev").addEventListener("click", function(){
+  if(histIdx > 0){ histIdx--; render(HISTORY[histIdx]); setStatus("履歴を表示中（" + (histIdx+1) + " / " + HISTORY.length + " 件目）"); }
+});
+$("histNext").addEventListener("click", function(){
+  if(histIdx < HISTORY.length - 1){ histIdx++; render(HISTORY[histIdx]); setStatus("履歴を表示中（" + (histIdx+1) + " / " + HISTORY.length + " 件目）"); }
+});
 
 $("copy").addEventListener("click", function(){
   var text = $("out").textContent;

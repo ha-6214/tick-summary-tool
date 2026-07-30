@@ -54,7 +54,7 @@ from collections import defaultdict
 # ============================================================
 # ルール版番号（出力・ファイル名の照合に使用）
 # ============================================================
-RULE_VERSION = "v1.11"
+RULE_VERSION = "v1.12"
 
 # ============================================================
 # 境界の定義（プロンプトの文言をそのまま数式にしたもの。変更しないこと）
@@ -308,9 +308,29 @@ INFO_MARGIN_SELL   = opts.get('margin_sell', '')     # 信用売れ残
 INFO_MARGIN_BUY    = opts.get('margin_buy', '')      # 信用買い残
 INFO_MARGIN_RATIO  = opts.get('margin_ratio', '')    # 信用倍率
 
+# --- CSVファイル名から日付・銘柄コードを補う ---
+# 定型規則「qr-銘柄コード-日付.csv」（例 qr-3407-20260722.csv）に対応する。
+# 銘柄情報で明示された値があればそちらを優先し、無い項目だけを補う。
+DATE_FROM_FILENAME = False
+_fname = os.path.basename(opts.get('csv_name', '') or CSV_PATH)
+_fm = re.search(r'qr[-_]([0-9A-Za-z]{3,5})[-_](\d{8}|\d{4}[-/.]\d{1,2}[-/.]\d{1,2})',
+                _fname, re.IGNORECASE)
+if _fm:
+    if not INFO_CODE:
+        INFO_CODE = _fm.group(1)
+    if not norm_date(INFO_DATE):
+        d = _fm.group(2)
+        if len(d) == 8 and d.isdigit():
+            d = '%s-%s-%s' % (d[0:4], d[4:6], d[6:8])
+        if norm_date(d):
+            INFO_DATE = d
+            DATE_FROM_FILENAME = True
+
 TODAY_DT = norm_date(INFO_DATE)
 if TODAY_DT is None:
-    die("日付を読み取れませんでした。銘柄情報に「日付: 2026年7月22日」の行があるか確認してください。")
+    die("日付を読み取れませんでした。\n"
+        "銘柄情報に「日付: 2026年7月22日」の行を入れるか、\n"
+        "CSVのファイル名を「qr-銘柄コード-日付.csv」の形にしてください。")
 if not INFO_CODE:
     die("銘柄コードを読み取れませんでした。銘柄情報に「銘柄コード: 5802」の行があるか確認してください。")
 
@@ -1002,7 +1022,7 @@ def main():
     body.extend(output)
 
     readback = []
-    readback.append("日付: %s" % INFO_DATE)
+    readback.append("日付: %s%s" % (INFO_DATE, "（ファイル名から取得）" if DATE_FROM_FILENAME else ""))
     readback.append("銘柄: %s %s" % (INFO_CODE, INFO_NAME))
     readback.append("年初来高値: %s円（%s）" % (format_number(YEAR_HIGH), INFO_YEARHIGH_DATE or '日付なし'))
     readback.append("信用: 売れ残%s ／ 買い残%s ／ 倍率%s" % (INFO_MARGIN_SELL, INFO_MARGIN_BUY, INFO_MARGIN_RATIO))
