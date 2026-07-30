@@ -22,6 +22,8 @@
   .step{font-size:.82rem;color:var(--muted);font-weight:600;margin-bottom:6px}
   .filebox{border:1.5px dashed var(--border);border-radius:10px;padding:12px;background:#fafbfc;
            display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .fileinput{display:block;width:100%;order:-1;margin-bottom:6px}
+  code{font-family:var(--mono);font-size:.78rem;background:#eef1f6;padding:1px 6px;border-radius:5px;color:var(--ink)}
   .fname{font-family:var(--mono);font-size:.78rem;color:var(--accent);word-break:break-all}
   input[type=file]{font:inherit;font-size:.8rem;max-width:100%}
   textarea{width:100%;font-family:var(--mono);font-size:.8rem;padding:10px;border:1px solid var(--border);
@@ -58,10 +60,11 @@
   <div class="card">
     <div class="step">① 歩み値CSV</div>
     <div class="filebox">
-      <input type="file" id="csv">
+      <input type="file" id="csv" class="fileinput">
       <span class="fname" id="fcsv">未選択</span>
       <button class="ghost" id="csvClear" style="margin-left:auto">クリア</button>
     </div>
+    <div class="note">「Download」フォルダの <code id="csvHint">qr-（銘柄コード）-（最新日付）.csv</code> を選びます。</div>
 
     <div class="step" style="margin-top:16px;display:flex;justify-content:space-between;align-items:center">
       <span>② 銘柄情報（そのまま貼り付け）</span>
@@ -77,9 +80,10 @@
       </span>
     </div>
     <div class="filebox" style="margin-bottom:8px">
-      <input type="file" id="prev">
+      <input type="file" id="prev" class="fileinput">
       <span class="fname" id="fprev">未選択</span>
     </div>
+    <div class="note" style="margin:0 0 8px"><code id="prevHint">「Summary」フォルダの summary-（銘柄コード）-（前日）.md を選びます。</code></div>
     <textarea id="prevText" rows="12" placeholder="ファイルを選ぶ代わりに、前日の集計結果や分析結果をそのまま貼り付けても構いません。貼り付け行（15項目）だけでも読み取ります。"></textarea>
     <div class="note">空にすると、前日比が必要な判定は「判定不能」になります。銘柄コードや日付が当日と合わない場合は集計を止めます。</div>
 
@@ -135,7 +139,17 @@ $("prevText").addEventListener("input", function(){
   }
 });
 
-$("meta").addEventListener("input", refresh);
+function readCode(){
+  var m = $("meta").value.match(/(?:銘柄コード|コード|証券コード)\s*[:：]\s*['"]?([0-9A-Za-z]{3,5})/);
+  return m ? m[1] : null;
+}
+function updateHints(){
+  var code = readCode() || "（銘柄コード）";
+  $("csvHint").textContent = "qr-" + code + "-（最新日付）.csv";
+  $("prevHint").textContent = "「Summary」フォルダの summary-" + code + "-（前日）.md を選びます。";
+}
+$("meta").addEventListener("input", function(){ refresh(); updateHints(); });
+updateHints();
 
 $("csvClear").addEventListener("click", function(){
   $("csv").value = ""; csvBytes = null; $("fcsv").textContent = "未選択";
