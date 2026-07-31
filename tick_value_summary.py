@@ -54,7 +54,7 @@ from collections import defaultdict
 # ============================================================
 # ルール版番号（出力・ファイル名の照合に使用）
 # ============================================================
-RULE_VERSION = "v1.12"
+RULE_VERSION = "v1.14"
 
 # ============================================================
 # 境界の定義（プロンプトの文言をそのまま数式にしたもの。変更しないこと）
@@ -518,6 +518,10 @@ def main():
     max_vol_price = max(price_volume, key=price_volume.get)
     max_vol_shares = price_volume[max_vol_price]
 
+    # 当日高値・安値（貼り付け行と価格帯情報で共用）
+    day_high = max(r['price'] for r in rows)
+    day_low = min(r['price'] for r in rows)
+
     # ============================================================
     # 5. 買いスコア各項目
     # ============================================================
@@ -745,6 +749,10 @@ def main():
     im_count = 0; im_vol = 0; im_amt = 0; im_buy_amt = 0; im_sell_amt = 0
     rt_count = 0; rt_vol = 0; rt_amt = 0; rt_buy_amt = 0; rt_sell_amt = 0
 
+    # 機関500万円以上（高＋中）の買い金額のうち、引け約定（15:30:00）を除いた分。
+    # サイン4（ザラバのみ機関買い比率）の材料。分母は総売買代金にそろえる。
+    inst_buy_amt_zaraba = 0
+
     for i, r in enumerate(rows):
         d = directions[i]
         if r['amount'] >= THRESHOLD_AMOUNT:
@@ -756,6 +764,9 @@ def main():
                 im_count += 1; im_vol += r['volume']; im_amt += r['amount']
                 if d == 'buy':   im_buy_amt += r['amount']
                 elif d == 'sell': im_sell_amt += r['amount']
+            # 機関（高＋中）の買いで、引け約定でないものだけを積算
+            if d == 'buy' and not is_closing_flag[i]:
+                inst_buy_amt_zaraba += r['amount']
         else:
             rt_count += 1; rt_vol += r['volume']; rt_amt += r['amount']
             if d == 'buy':   rt_buy_amt += r['amount']
@@ -776,6 +787,10 @@ def main():
     # 機関500万円以上合算
     inst_buy_pct  = ih_buy_pct + im_buy_pct
     inst_sell_pct = ih_sell_pct + im_sell_pct
+
+    # サイン4用：機関500万円以上の買いのうち引け約定を除いた分（全体比）
+    #   inst_buy_pct（引け込み） − inst_buy_pct_zaraba ＝ 引けの上乗せ分（%）
+    inst_buy_pct_zaraba = inst_buy_amt_zaraba / ta * 100 if ta > 0 else 0
 
     total_buy_pct  = ih_buy_pct + im_buy_pct + rt_buy_pct
     total_sell_pct = ih_sell_pct + im_sell_pct + rt_sell_pct
@@ -903,9 +918,10 @@ def main():
     output.append(f"機関確度・中（500万円以上・単発）: 件数{format_number(im_count)}件 ／ 株数{format_number(im_vol)}株 ／ 金額{format_number(im_amt)}円 ／ 比率{im_ratio:.1f}% ／ 買い主導（全体比）{im_buy_pct:.1f}%・売り主導（全体比）{im_sell_pct:.1f}%")
     output.append(f"個人（500万円未満）: 件数{format_number(rt_count)}件 ／ 株数{format_number(rt_vol)}株 ／ 金額{format_number(rt_amt)}円 ／ 比率{rt_ratio:.1f}% ／ 買い主導（全体比）{rt_buy_pct:.1f}%・売り主導（全体比）{rt_sell_pct:.1f}%")
     output.append(f"機関500万円以上合算: 買い主導（全体比）{inst_buy_pct:.1f}%・売り主導（全体比）{inst_sell_pct:.1f}%")
+    output.append(f"機関500万円以上・買い主導（ザラバのみ・引け約定を除く／全体比）: {inst_buy_pct_zaraba:.1f}%（引けの上乗せ分{inst_buy_pct - inst_buy_pct_zaraba:.1f}pt）")
 
     output.append("")
-    output.append("【貼り付け用（タブ区切り）】")
+    output.append("【１．貼り付け用（タブ区切り）】")
     paste = "\t".join([
         str(ih_amt), f"{ih_ratio:.1f}", f"{ih_buy_pct:.1f}", f"{ih_sell_pct:.1f}",
         str(im_amt), f"{im_ratio:.1f}", f"{im_buy_pct:.1f}", f"{im_sell_pct:.1f}",
@@ -915,8 +931,18 @@ def main():
     output.append(paste)
 
     output.append("")
+    output.append("【２．貼り付け用（タブ区切り）】")
+    output.append("（当日終値・当日高値・当日安値・最大出来高価格帯・ザラバ機関買い比率・TWAP検出件数）")
+    paste2 = "\t".join([
+        str(closing_price), str(day_high), str(day_low),
+        str(max_vol_price), f"{inst_buy_pct_zaraba:.1f}", str(len(twap_indices))
+    ])
+    output.append(paste2)
+
+    output.append("")
     output.append("【需給構造判定用の数値】")
     output.append(f"機関500万円以上・買い主導（全体比）: {inst_buy_pct:.1f}%")
+    output.append(f"機関500万円以上・買い主導（ザラバのみ・引け除く／全体比）: {inst_buy_pct_zaraba:.1f}%")
     output.append(f"機関500万円以上・売り主導（全体比）: {inst_sell_pct:.1f}%")
     output.append(f"個人・買い主導（全体比）: {rt_buy_pct:.1f}%")
     output.append(f"個人・売り主導（全体比）: {rt_sell_pct:.1f}%")
@@ -933,8 +959,8 @@ def main():
 
     output.append("")
     output.append("【価格帯情報（参考）】")
-    output.append(f"当日高値: {max(prices := [r['price'] for r in rows])}円")
-    output.append(f"当日安値: {min(prices)}円")
+    output.append(f"当日高値: {day_high}円")
+    output.append(f"当日安値: {day_low}円")
     output.append(f"年初来高値: {format_number(YEAR_HIGH)}円")
     output.append(f"年初来高値の90%: {zone_90:.0f}円")
     output.append(f"年初来高値の85%: {zone_85:.0f}円")
