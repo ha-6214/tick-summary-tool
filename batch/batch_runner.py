@@ -25,7 +25,7 @@ import sys
 import zipfile
 from datetime import datetime, timezone, timedelta
 
-RUNNER_VERSION = "v1.0"
+RUNNER_VERSION = "v1.1"
 SCHEMA_VERSION = "1.0"
 
 # 集計ルールの互換の区分。判定に使う数値の意味が変わる改定のときだけ、
@@ -100,7 +100,8 @@ def load_engine(src_text):
     _ENGINE_SRC = src_text
     m = re.search(r'RULE_VERSION\s*=\s*["\']([^"\']+)["\']', src_text)
     _ENGINE_VERSION = m.group(1) if m else ''
-    return {"rule_version": _ENGINE_VERSION, "compat": _compat_of(_ENGINE_VERSION)}
+    return {"rule_version": _ENGINE_VERSION, "compat": _compat_of(_ENGINE_VERSION),
+            "runner_version": RUNNER_VERSION}
 
 
 def load_master(md_text):
@@ -339,14 +340,18 @@ def _run_engine(csv_name, csv_text, info, prev):
         sys.argv, sys.stdout = old_argv, old_stdout
 
     out = buf.getvalue()
-    # 正常に終わった場合だけ <<<FILENAME>>> …… <<<BODY>>> の形で返ってくる。
-    # その形でなければ、原本が途中で止めたものとしてエラーにする。
-    m = re.search(r'<<<FILENAME>>>\n(.*?)\n<<<READBACK>>>\n(.*?)\n<<<BODY>>>\n(.*)$',
-                  out, re.S)
-    if not ok or not m:
-        msg = re.sub(r'<<<[^>]*>>>', '', out).strip().splitlines()
-        return False, '', '', (' '.join(msg) if msg else '集計を中止しました')
-    return True, m.group(3), m.group(2), m.group(1).strip()
+    # 正常に終わったときだけ、3つの目印が順に出てくる。
+    # 改行の違いに左右されないよう、正規表現ではなく位置を探して切り分ける。
+    i1 = out.find('<<<FILENAME>>>')
+    i2 = out.find('<<<READBACK>>>')
+    i3 = out.find('<<<BODY>>>')
+    if ok and 0 <= i1 < i2 < i3:
+        fname = out[i1 + len('<<<FILENAME>>>'):i2].strip()
+        readback = out[i2 + len('<<<READBACK>>>'):i3].strip('\r\n')
+        body = out[i3 + len('<<<BODY>>>'):].lstrip('\r\n')
+        return True, body, readback, fname
+    msg = re.sub(r'<<<[^>]*>>>', ' ', out).strip().splitlines()
+    return False, '', '', (' '.join(msg)[:300] if msg else '集計を中止しました')
 
 
 # ============================================================
