@@ -25,7 +25,7 @@ import sys
 import zipfile
 from datetime import datetime, timezone, timedelta
 
-RUNNER_VERSION = "v1.1"
+RUNNER_VERSION = "v1.3"
 SCHEMA_VERSION = "1.0"
 
 # 集計ルールの互換の区分。判定に使う数値の意味が変わる改定のときだけ、
@@ -428,6 +428,21 @@ def _parse_body(text):
         'max': 5,
         'judgment': _pick(r'【売り判定】(.+)', text, cast=lambda s: s.strip(), default=''),
     }
+    hb = {'exists': '【重点時間帯】\nなし' not in text, 'bands': [], 'detail': []}
+    b = re.search(r'【重点時間帯】\n(.*?)\n\n', text, re.S)
+    if b:
+        lines = b.group(1).splitlines()
+        m2 = re.match(r'あり（(.*?)）', lines[0]) if lines else None
+        if m2:
+            hb['bands'] = [t.strip() for t in m2.group(1).split(',')]
+        for line in lines[1:]:
+            m3 = re.match(r'\s*(\d{2}:\d{2}):\s*([\d,]+)円（([\d.]+)%）', line)
+            if m3:
+                hb['detail'].append({'time': m3.group(1), 'amount': _num(m3.group(2)),
+                                     'pct': _num(m3.group(3)),
+                                     'heavy': '★' in line})
+    d['heavy_bands'] = hb
+
     inv = {}
     for key, label in [('inst_high', '機関確度・高'), ('inst_mid', '機関確度・中'),
                        ('retail', '個人')]:
@@ -556,6 +571,7 @@ _G1 = ['機関高_金額', '機関高_比率', '機関高_買い', '機関高_�
        '合計_金額', '合計_買い', '合計_売り']
 _G2 = ['当日終値', '当日高値', '当日安値', '最大出来高価格帯',
        'ザラバ機関買い比率', 'TWAP検出件数']
+_G3 = ['基本', '追加', '反証（減点）']
 
 
 def _csv_text(codes):
@@ -563,9 +579,11 @@ def _csv_text(codes):
     buf = io.StringIO()
     w = _csv.writer(buf, lineterminator='\n')
     w.writerow(['', '', ''] + ['①機関・個人の売買'] + [''] * (len(_G1) - 1)
-               + [''] + ['②価格と執行'] + [''] * (len(_G2) - 1) + [''])
+               + [''] + ['②価格と執行'] + [''] * (len(_G2) - 1) + ['']
+               + ['③買いスコアの内訳'] + [''] * (len(_G3) - 1))
     w.writerow(['日付', '銘柄コード', '銘柄名'] + ['①_' + c for c in _G1]
-               + [''] + ['②_' + c for c in _G2] + ['状態'])
+               + [''] + ['②_' + c for c in _G2] + ['状態']
+               + ['③_' + c for c in _G3])
     for code in codes:
         r = _RESULTS.get(code)
         if not r:
@@ -573,11 +591,14 @@ def _csv_text(codes):
         head = [_TODAY, code, r.get('name', '')]
         if r.get('status') != '完了':
             w.writerow(head + [''] * 15 + [''] + [''] * 6
-                       + ['エラー: ' + str(r.get('error', ''))])
+                       + ['エラー: ' + str(r.get('error', ''))] + [''] * len(_G3))
             continue
         p1 = r.get('paste1') or [''] * 15
         p2 = r.get('paste2') or [''] * 6
-        w.writerow(head + list(p1) + [''] + list(p2) + ['完了'])
+        bs = r.get('buy_score') or {}
+        p3 = [bs.get(k) if bs.get(k) is not None else ''
+              for k in ('base', 'extra', 'counter_total')]
+        w.writerow(head + list(p1) + [''] + list(p2) + ['完了'] + p3)
     return buf.getvalue()
 
 
