@@ -19,7 +19,11 @@
   h1{font-size:1.2rem;margin:0;font-weight:600}
   .ver{font-family:var(--mono);font-size:.75rem;color:var(--muted)}
   .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px}
-  .step{font-size:.82rem;color:var(--muted);font-weight:600;margin-bottom:6px}
+  .step{font-size:.82rem;color:var(--muted);font-weight:600;margin-bottom:6px;
+        display:flex;justify-content:space-between;align-items:center;gap:10px}
+  .clr{font:inherit;font-size:.76rem;font-weight:600;padding:4px 10px;border-radius:7px;
+       background:#fff;border:1px solid var(--border);color:var(--muted);cursor:pointer}
+  .clr:hover{color:var(--ink)}
   .filebox{border:1.5px dashed var(--border);border-radius:10px;padding:12px;background:#fafbfc;margin-bottom:14px}
   .filebox:last-child{margin-bottom:0}
   input[type=file]{font:inherit;font-size:.8rem;max-width:100%;display:block;width:100%}
@@ -57,19 +61,19 @@
   </div>
 
   <div class="card">
-    <div class="step">① 銘柄マスタ（master-stocks.md）</div>
+    <div class="step"><span>① 銘柄マスタ（master-stocks.md）</span><button class="clr" id="cMaster">クリア</button></div>
     <div class="filebox">
       <input type="file" id="fMaster">
       <span class="fname" id="nMaster">未選択</span>
     </div>
 
-    <div class="step">② 前日データ（省略可・JSONまたはMD／複数選択できます）</div>
+    <div class="step"><span>② 前日データ（省略可・JSONまたはMD／複数選択できます）</span><button class="clr" id="cPrev">クリア</button></div>
     <div class="filebox">
       <input type="file" id="fPrev" multiple>
       <span class="fname" id="nPrev">未選択</span>
     </div>
 
-    <div class="step">③ 当日の歩み値CSV（まとめて選びます）</div>
+    <div class="step"><span>③ 当日の歩み値CSV（まとめて選びます）</span><button class="clr" id="cCsv">クリア</button></div>
     <div class="filebox">
       <input type="file" id="fCsv" multiple>
       <span class="fname" id="nCsv">未選択</span>
@@ -77,6 +81,7 @@
     <div class="note">ファイル名は <code>qr-銘柄コード-日付.csv</code> の形を読み取ります。</div>
 
     <div class="actions" style="margin-top:14px">
+      <button class="ghost" id="btnClearAll">すべてクリア</button>
       <button class="ghost" id="btnCheck" disabled>事前確認</button>
       <button class="run" id="btnRun" disabled>一括集計</button>
       <span class="status" id="msg"></span>
@@ -139,13 +144,43 @@ function pick(input, label, key, multi){
     const fs = Array.from(input.files || []);
     if (multi) { files[key] = fs; label.textContent = fs.length ? fs.length + '件' : '未選択'; }
     else { files[key] = fs[0] || null; label.textContent = fs[0] ? fs[0].name : '未選択'; }
-    doneNames.clear();
-    $('btnRun').disabled = true;
+    resetRun();
   });
 }
 pick($('fMaster'), $('nMaster'), 'master', false);
 pick($('fPrev'), $('nPrev'), 'prev', true);
 pick($('fCsv'), $('nCsv'), 'csv', true);
+
+function clearOne(key){
+  const map = { master: ['fMaster', 'nMaster', false],
+                prev: ['fPrev', 'nPrev', true],
+                csv: ['fCsv', 'nCsv', true] };
+  const [inputId, labelId, multi] = map[key];
+  $(inputId).value = '';
+  files[key] = multi ? [] : null;
+  $(labelId).textContent = '未選択';
+  resetRun();
+}
+function resetRun(){
+  doneNames.clear();
+  out = null;
+  $('btnRun').disabled = true;
+  $('outCard').classList.add('hidden');
+  $('progCard').classList.add('hidden');
+  $('tbl').querySelector('tbody').innerHTML = '';
+  $('bar').style.width = '0';
+  $('prog').textContent = '';
+  $('readback').classList.add('hidden');
+  if (py) { try { py.runPython('B.reset_results()'); } catch (e) { /* 読み込み前は何もしない */ } }
+  setMsg('ファイルを選んでください');
+}
+$('cMaster').addEventListener('click', () => clearOne('master'));
+$('cPrev').addEventListener('click', () => clearOne('prev'));
+$('cCsv').addEventListener('click', () => clearOne('csv'));
+$('btnClearAll').addEventListener('click', () => {
+  if (running) { setMsg('集計の途中です。終わってからクリアしてください。', 'err'); return; }
+  clearOne('master'); clearOne('prev'); clearOne('csv');
+});
 
 async function loadInputs(){
   if (!files.master) throw new Error('銘柄マスタを選んでください');
