@@ -237,9 +237,9 @@ function b64ToBytes(b64){
   for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i);
   return a;
 }
-async function give(name, data, type){
+async function give(name, data, type, bom){
   const blob = (typeof data === 'string')
-    ? new Blob([new Uint8Array([0xEF,0xBB,0xBF]), data], { type })
+    ? new Blob(bom ? [new Uint8Array([0xEF,0xBB,0xBF]), data] : [data], { type })
     : new Blob([data], { type });
   const file = new File([blob], name, { type });
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
@@ -250,7 +250,7 @@ async function give(name, data, type){
   a.href = url; a.download = name; document.body.appendChild(a); a.click();
   setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
 }
-$('dlCsv').addEventListener('click', () => out && give(out.csv_name, out.csv, 'text/csv'));
+$('dlCsv').addEventListener('click', () => out && give(out.csv_name, out.csv, 'text/csv', true));
 $('dlJson').addEventListener('click', () => out && give(out.json_name, out.json, 'application/json'));
 $('dlZip').addEventListener('click', () => out && give(out.zip_name, b64ToBytes(out.zip_b64), 'application/zip'));
 
