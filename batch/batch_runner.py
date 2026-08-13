@@ -339,16 +339,14 @@ def _run_engine(csv_name, csv_text, info, prev):
         sys.argv, sys.stdout = old_argv, old_stdout
 
     out = buf.getvalue()
-    if not ok or re.search(r'<<<[^>]*>>>', out.split('\n')[0] if out else ''):
-        msg = re.sub(r'<<<[^>]*>>>', '', out).strip().splitlines()
-        return False, '', '', (' '.join(msg) if msg else '集計を中止しました')
-
-    body, readback, fname = out, '', ''
+    # 正常に終わった場合だけ <<<FILENAME>>> …… <<<BODY>>> の形で返ってくる。
+    # その形でなければ、原本が途中で止めたものとしてエラーにする。
     m = re.search(r'<<<FILENAME>>>\n(.*?)\n<<<READBACK>>>\n(.*?)\n<<<BODY>>>\n(.*)$',
                   out, re.S)
-    if m:
-        fname, readback, body = m.group(1).strip(), m.group(2), m.group(3)
-    return True, body, readback, fname
+    if not ok or not m:
+        msg = re.sub(r'<<<[^>]*>>>', '', out).strip().splitlines()
+        return False, '', '', (' '.join(msg) if msg else '集計を中止しました')
+    return True, m.group(3), m.group(2), m.group(1).strip()
 
 
 # ============================================================
