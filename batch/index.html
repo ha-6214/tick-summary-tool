@@ -119,8 +119,9 @@ function showRB(lines){ const r=$('readback'); r.classList.remove('hidden'); r.t
 async function boot(){
   setMsg('集計の部品を読み込んでいます…');
   py = await loadPyodide({ indexURL: '../pyodide/' });
-  const engine = await (await fetch('../tick_value_summary.py')).text();
-  const runner = await (await fetch('./batch_runner.py')).text();
+  const bust = '?t=' + Date.now();
+  const engine = await (await fetch('../tick_value_summary.py' + bust, { cache: 'no-store' })).text();
+  const runner = await (await fetch('./batch_runner.py' + bust, { cache: 'no-store' })).text();
   py.FS.writeFile('/home/pyodide/batch_runner.py', runner);
   py.runPython('import sys; sys.path.insert(0, "/home/pyodide")');
   py.globals.set('ENGINE_SRC', engine);
@@ -128,7 +129,7 @@ async function boot(){
 import json, batch_runner as B
 json.dumps(B.load_engine(ENGINE_SRC))`);
   const v = JSON.parse(info);
-  $('ver').textContent = 'ルール版 ' + v.rule_version;
+  $('ver').textContent = 'ルール版 ' + v.rule_version + ' ／ 係 ' + (v.runner_version || '不明');
   setMsg('ファイルを選んでください');
   $('btnCheck').disabled = false;
 }
