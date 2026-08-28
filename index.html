@@ -193,6 +193,12 @@ async function loadInputs(){
   py.globals.set('PREV_JSON', JSON.stringify(prev));
   const p = JSON.parse(py.runPython('json.dumps(B.load_prev(json.loads(PREV_JSON)))'));
 
+  // 銘柄コード順に並べ替える（転記用CSV・JSONと同じ並び）
+  py.globals.set('CSV_NAMES', JSON.stringify(files.csv.map(f => f.name)));
+  const order = JSON.parse(py.runPython('json.dumps(B.sort_csv_names(json.loads(CSV_NAMES)))'));
+  const byName = new Map(files.csv.map(f => [f.name, f]));
+  files.csv = order.map(n => byName.get(n)).filter(Boolean);
+
   py.globals.set('CSV_NAMES', JSON.stringify(files.csv.map(f => f.name)));
   const c = JSON.parse(py.runPython('json.dumps(B.check(json.loads(CSV_NAMES)))'));
   return { m, p, c };
