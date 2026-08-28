@@ -278,6 +278,20 @@ def load_prev(files):
             "unreadable": bad, "no_close": no_close}
 
 
+def sort_csv_names(csv_names):
+    """CSVのファイル名を銘柄コード順に並べ替えて返す。
+    並べ方は転記用CSV・JSONと同じで、コードの文字列をそのまま昇順に比べる。
+    英字を含むコード（141A など）も数値に直さず、文字のまま比べる。
+    そのため 1418 → 141A の順になり、数字が英字より先にくる。
+    コードを読み取れなかったファイルは、順番を変えずに末尾へ回す。"""
+    withcode, nocode = [], []
+    for i, n in enumerate(csv_names):
+        code, _ = _code_from_name(n)
+        (withcode if code else nocode).append((code, i, n))
+    withcode.sort(key=lambda t: (t[0], t[2]))
+    return [t[2] for t in withcode] + [t[2] for t in nocode]
+
+
 # ============================================================
 # 事前検証
 # ============================================================
