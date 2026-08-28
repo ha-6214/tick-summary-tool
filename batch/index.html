@@ -94,7 +94,7 @@
     <div class="bar"><i id="bar"></i></div>
     <div class="status" id="prog"></div>
     <div class="scroll"><table id="tbl">
-      <thead><tr><th>コード</th><th>銘柄</th><th class="num">買い</th><th class="num">売り</th><th>押し目</th><th>状態</th></tr></thead>
+      <thead><tr><th>コード</th><th>銘柄</th><th class="num">買い</th><th class="num">売り</th><th class="num">機関ネット</th><th class="num">個人ネット</th><th>新押し目</th><th>要注意</th><th>旧押し目</th><th>状態</th></tr></thead>
       <tbody></tbody>
     </table></div>
   </div>
@@ -207,12 +207,15 @@ $('btnCheck').addEventListener('click', async () => {
     L.push('歩み値CSV: ' + c.files + '件 ／ 銘柄 ' + c.codes + '件');
     L.push('対象日: ' + (c.today || '読み取れません'));
     L.push('前日データ: ' + p.count + '件（今回の対象で ' + c.prev_found + '件）');
+    L.push('判定の正本は集計ブックです。画面とMDの判定は参考の値です。');
     const warn = [];
     if (c.duplicated.length) warn.push('銘柄コードの重複: ' + c.duplicated.join('、'));
     if (c.not_in_master.length) warn.push('マスタに未登録: ' + c.not_in_master.join('、'));
     if (c.name_unreadable.length) warn.push('ファイル名を読めません: ' + c.name_unreadable.join('、'));
     if (Object.keys(c.dates).length > 1) warn.push('日付が混ざっています: ' + Object.keys(c.dates).join('、'));
     if (c.prev_missing.length) warn.push('前日データなし（当日分だけで集計）: ' + c.prev_missing.length + '件');
+    if (c.prev_no_close && c.prev_no_close.length) warn.push('前日データに終値がない（新押し目などが判定不能）: '
+      + c.prev_no_close.length + '件');
     if (c.rule_mismatch.length) warn.push('集計ルールの版が違う前日データ: ' + c.rule_mismatch.join('、'));
     if (p.conflicts.length) warn.push('前日のJSONとMDで値が違う銘柄: ' + p.conflicts.join('、'));
     if (p.unreadable.length) warn.push('読めなかった前日ファイル: ' + p.unreadable.join(' / '));
@@ -244,6 +247,10 @@ $('btnRun').addEventListener('click', async () => {
       tr.innerHTML = '<td>' + r.code + '</td><td>' + (r.name || '') + '</td>'
         + '<td class="num">' + (r.buy_score ?? '') + '</td>'
         + '<td class="num">' + (r.sell_score ?? '') + '</td>'
+        + '<td class="num">' + (r.inst_net ?? '') + '</td>'
+        + '<td class="num">' + (r.ind_net ?? '') + '</td>'
+        + '<td>' + ((r.dip_new || '').indexOf('構図あり') >= 0 ? '○' : '') + '</td>'
+        + '<td>' + ((r.caution || '').indexOf('要注意') === 0 ? '要注意' : '') + '</td>'
         + '<td>' + ((r.dip_buy || '').indexOf('構図あり') >= 0 ? '○' : '') + '</td>'
         + '<td>' + (r.status === '完了' ? '完了' : (r.error || 'エラー')) + '</td>';
       tb.appendChild(tr);
@@ -254,9 +261,14 @@ $('btnRun').addEventListener('click', async () => {
     }
     out = JSON.parse(py.runPython('json.dumps(B.finalize())'));
     $('outCard').classList.remove('hidden');
-    $('outMsg').textContent = '対象 ' + out.summary.target + '件 ／ 完了 ' + out.summary.done
-      + '件 ／ エラー ' + out.summary.error + '件　押し目候補 '
-      + out.summary.dip_buy_candidates.length + '件';
+    const sm = out.summary;
+    $('outMsg').textContent = '対象 ' + sm.target + '件 ／ 完了 ' + sm.done
+      + '件 ／ エラー ' + sm.error + '件'
+      + '　新押し目 ' + sm.dip_new_candidates.length + '件'
+      + '（うち要注意 ' + sm.caution.length + '件）'
+      + '　逆行吸収 ' + sm.absorb_reverse.length + '件'
+      + '　機関吸収型 ' + sm.absorb_inst.length + '件'
+      + '　旧押し目 ' + sm.dip_buy_candidates.length + '件';
     $('prog').textContent = '集計が終わりました。';
     setMsg('集計が終わりました。', 'ok');
   } catch (e) {
