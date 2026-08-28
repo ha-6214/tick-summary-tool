@@ -54,7 +54,7 @@ from collections import defaultdict
 # ============================================================
 # ルール版番号（出力・ファイル名の照合に使用）
 # ============================================================
-RULE_VERSION = "v1.14"
+RULE_VERSION = "v1.15"
 
 # ============================================================
 # 境界の定義（プロンプトの文言をそのまま数式にしたもの。変更しないこと）
@@ -67,6 +67,15 @@ TH_DAY_INST_BUY    = 5.0    # 当日数値 条件1：機関買い主導（%・�
 TH_DAY_IND_DIFF_PT = 8.0    # 当日数値 条件2：個人売り−買い（pt・以上）
 TH_REV_INST_BUY    = 2.0    # 逆シグナル 条件1：機関買い主導（%・以下）
 TH_REV_IND_BUY     = 30.0   # 逆シグナル 条件2：個人買い主導（%・超）
+
+# 集計ブックの判定シート U〜X列にそろえた境界。
+# 比べる値は貼り付け行の桁（小数第1位）にそろえてから使う。
+# 終値位置だけは丸めない（集計ブックも丸めていない）。
+TH_NEW_INST_NET   = 10.0   # 新押し目 条件2：機関ネット率（pt・超）
+TH_CAUTION_POS    = 0.3    # 要注意   条件1：終値位置（未満）
+TH_CAUTION_TWAP   = 3      # 要注意   条件2：TWAP検出件数（件・以上）
+TH_ABSORB_REV_PT  = 10.0   # 逆行吸収 条件2：機関高ネットの前日比（pt・以上）
+TH_SELL_OUT_PT    = 10.0   # 機関売り撤収 条件1：機関高売りの前日比低下（pt・以上）
 
 
 # ブラウザ版から呼ばれたときだけ、出力に目印を付ける。
@@ -218,6 +227,30 @@ def find_paste_row(lines):
     return None
 
 
+def find_paste_row2(lines):
+    """6項目の貼り付け行を探す（当日終値・高値・安値・最大出来高価格帯・
+    ザラバ機関買い比率・TWAP検出件数）。見つからなければ None を返す。"""
+    def as_nums(line):
+        parts = line.replace('\t', ' ').split()
+        if len(parts) != 6:
+            return None
+        try:
+            return [float(p.replace(',', '')) for p in parts]
+        except ValueError:
+            return None
+    for i, line in enumerate(lines):
+        if '２．貼り付け' in line or '2．貼り付け' in line:
+            for cand in lines[i + 1:i + 6]:
+                nums = as_nums(cand)
+                if nums:
+                    return nums
+    for line in lines:
+        nums = as_nums(line)
+        if nums:
+            return nums
+    return None
+
+
 def find_prev_date(text):
     """本文から日付を推定する（見出し部分がない前日ファイル向け）"""
     m = re.search(r'日付[^0-9]{0,6}(\d{4})[年/\-.](\d{1,2})[月/\-.](\d{1,2})', text)
@@ -253,7 +286,7 @@ def parse_prev_md(text):
         head['code'] = str(head.get('ticker', '')).strip()
     if not head.get('code'):
         head['code'] = find_prev_code(text)
-    return head, find_paste_row(lines)
+    return head, find_paste_row(lines), find_paste_row2(lines)
 
 
 if len(sys.argv) < 2:
@@ -350,13 +383,18 @@ if opts.get('prev'):
     except OSError:
         die("前日データを読み取れませんでした。")
 elif opts.get('prev_row'):
-    # 貼り付け行（15項目）を直接受け取る場合
-    prev_text = '【貼り付け用】\n' + opts['prev_row']
+    # 貼り付け行を直接受け取る場合。15項目でも21項目でも受け取れる。
+    _pr = opts['prev_row'].replace('\t', ' ').split()
+    if len(_pr) == 21:
+        prev_text = ('【１．貼り付け用】\n' + '\t'.join(_pr[:15])
+                     + '\n\n【２．貼り付け用】\n' + '\t'.join(_pr[15:]))
+    else:
+        prev_text = '【貼り付け用】\n' + opts['prev_row']
     if opts.get('prev_date'):
         prev_text = '---\ndate: %s\ncode: %s\n---\n' % (
             opts['prev_date'], opts.get('prev_code', '')) + prev_text
 if prev_text is not None:
-    prev_head, prev_nums = parse_prev_md(prev_text)
+    prev_head, prev_nums, prev_nums2 = parse_prev_md(prev_text)
     if prev_nums is None:
         die("前日データの中に貼り付け行（15項目）が見つかりませんでした。数値が15個そろっているか確認してください。")
     prev_code = str(prev_head.get('code', '')).strip()
@@ -377,7 +415,24 @@ if prev_text is not None:
         'inst_sell': r1(prev_nums[3] + prev_nums[7]),
         'ind_buy':   r1(prev_nums[10]),
         'ind_sell':  r1(prev_nums[11]),
+        # 機関高だけを使う判定（機関売り撤収・逆行吸収）のために別々に持つ
+        'ih_buy':    r1(prev_nums[2]),
+        'ih_sell':   r1(prev_nums[3]),
+        'im_buy':    r1(prev_nums[6]),
+        'im_sell':   r1(prev_nums[7]),
     }
+    if prev_nums2:
+        PREV.update({
+            'close':    prev_nums2[0],
+            'high':     prev_nums2[1],
+            'low':      prev_nums2[2],
+            'max_vol':  prev_nums2[3],
+            'zaraba':   prev_nums2[4],
+            'twap':     prev_nums2[5],
+        })
+    else:
+        PREV_WARN.append("前日データに6項目（終値ほか）がないため、"
+                         "終値を使う判定は判定不能になります")
 
 # ============================================================
 # ユーティリティ関数
@@ -613,14 +668,17 @@ def main():
     # ============================================================
     base_buy = (2 if buy_item1 else 0) + (2 if buy_item2 else 0) + \
                (1 if buy_item3 else 0) + (1 if buy_item4 else 0)
-    extra_buy = (1 if buy_item5_twap else 0) + (1 if buy_item6_maxvol else 0)
+    # v1.15：後場TWAP検出の＋1点は廃止した。
+    # TWAP検出件数は銘柄の取引量に比例するため、単独では強弱を表さないため。
+    # 警戒側の使い方は、集計ブックの判定シートV列（安値引けとの組み合わせ）が担う。
+    extra_buy = (1 if buy_item6_maxvol else 0)
     counter_total = (1 if counter1 else 0) + (1 if counter2 else 0) + (1 if counter3 else 0)
     buy_score = max(0, base_buy + extra_buy - counter_total)
 
     # 買い判定
     if not has_closing:
         buy_judgment = "判定不能（引け約定なし）"
-    elif buy_score >= 6:
+    elif buy_score >= 5:
         buy_judgment = "買い初動の可能性が高い"
     elif buy_score >= 3:
         buy_judgment = "要継続観察"
@@ -877,7 +935,7 @@ def main():
     output.append(f"項目2（大口比率50%超）: {'該当' if buy_item2 else '非該当'}（{large_ratio:.1f}%、{large_count}/{total_rows}件）→ {'+2' if buy_item2 else '0'}点")
     output.append(f"項目3（終値>始値）: {'該当' if buy_item3 else '非該当'}（終値{closing_price} vs 始値{opening_price}）→ {'+1' if buy_item3 else '0'}点")
     output.append(f"項目4（14:30-15:00 ≥5000株 ≥3件）: {'該当' if buy_item4 else '非該当'}（{big_1430}件）→ {'+1' if buy_item4 else '0'}点")
-    output.append(f"項目5（後場TWAP検出）: {'該当' if buy_item5_twap else '非該当'}（TWAP該当約定{len(twap_indices)}件）→ {'+1' if buy_item5_twap else '0'}点")
+    output.append(f"項目5（後場TWAP検出）: {'該当' if buy_item5_twap else '非該当'}（TWAP該当約定{len(twap_indices)}件）→ 0点（v1.15で加点を廃止）")
     output.append(f"項目6（終値>最大出来高価格帯）: {'該当' if buy_item6_maxvol else '非該当'}（終値{closing_price} vs {max_vol_price}）→ {'+1' if buy_item6_maxvol else '0'}点")
 
     output.append("")
@@ -887,7 +945,7 @@ def main():
     output.append(f"反証3（同一秒大口混在>5秒）: {'該当' if counter3 else '非該当'}（{same_sec_count}秒）→ {'-1' if counter3 else '0'}点")
 
     output.append("")
-    output.append(f"【買いスコア合計】基本{base_buy} + 追加{extra_buy} - 反証{counter_total} = {buy_score}/8点")
+    output.append(f"【買いスコア合計】基本{base_buy} + 追加{extra_buy} - 反証{counter_total} = {buy_score}/7点")
     output.append(f"【買い判定】{buy_judgment}")
 
     output.append("")
@@ -946,6 +1004,25 @@ def main():
     output.append(f"機関500万円以上・売り主導（全体比）: {inst_sell_pct:.1f}%")
     output.append(f"個人・買い主導（全体比）: {rt_buy_pct:.1f}%")
     output.append(f"個人・売り主導（全体比）: {rt_sell_pct:.1f}%")
+
+    # 集計ブックと同じ値になるよう、貼り付け行の桁（小数第1位）にそろえてから引き算する
+    inst_net = r1(r1(ih_buy_pct) + r1(im_buy_pct) - r1(ih_sell_pct) - r1(im_sell_pct))
+    ind_net = r1(r1(rt_buy_pct) - r1(rt_sell_pct))
+    if day_high != day_low:
+        close_pos = (closing_price - day_low) / (day_high - day_low)
+    else:
+        close_pos = 1.0
+    twap_count = len(twap_indices)
+
+    output.append("")
+    output.append("【判定に使う数値（集計ブックのY列・Z列に対応）】")
+    output.append("機関ネット率: %+.1fpt（機関高買い%.1f＋機関中買い%.1f−機関高売り%.1f−機関中売り%.1f）"
+                  % (inst_net, r1(ih_buy_pct), r1(im_buy_pct), r1(ih_sell_pct), r1(im_sell_pct)))
+    output.append("個人ネット率: %+.1fpt（個人買い%.1f−個人売り%.1f）"
+                  % (ind_net, r1(rt_buy_pct), r1(rt_sell_pct)))
+    output.append("終値位置: %.3f（終値%s・高値%s・安値%s／高値と安値が同じときは1として扱う）"
+                  % (close_pos, closing_price, day_high, day_low))
+    output.append("TWAP検出件数: %d件" % twap_count)
 
     output.append("")
     output.append("【注意逆シグナル判定用】")
@@ -1021,6 +1098,67 @@ def main():
         output.append("注意逆シグナル判定：注意逆シグナル（機関買い主導%.1f%%、個人買い主導%.1f%%）" % (cb, ib))
     else:
         output.append("注意逆シグナル判定：該当なし")
+
+    # ============================================================
+    # 集計ブック Ver4.11 の判定シート U〜X列に対応する判定。
+    # ○×の正本は集計ブックであり、ここに出すのは参考の値である。
+    # ============================================================
+    output.append("")
+    output.append("【集計ブック対応の判定（参考。○×の正本は集計ブック）】")
+
+    _prev_close = (PREV or {}).get('close')
+    _have_close = (PREV is not None and _prev_close is not None
+                   and closing_price and closing_price > 0 and _prev_close > 0)
+    _down = _have_close and closing_price < _prev_close
+
+    if PREV is None:
+        output.append("新押し目判定：前日データなし：判定不能")
+        output.append("要注意判定：前日データなし：判定不能")
+        output.append("逆行吸収判定（補助）：前日データなし：判定不能")
+        output.append("機関吸収型押し目判定（補助）：前日データなし：判定不能")
+    elif not _have_close:
+        output.append("新押し目判定：前日の終値がないため判定不能")
+        output.append("要注意判定：前日の終値がないため判定不能")
+        output.append("逆行吸収判定（補助）：前日の終値がないため判定不能")
+        output.append("機関吸収型押し目判定（補助）：前日の終値がないため判定不能")
+    else:
+        _detail = ("終値 前日%s→当日%s、機関ネット率%+.1fpt、個人ネット率%+.1fpt"
+                   % (_prev_close, closing_price, inst_net, ind_net))
+
+        # U列：新押し目
+        new_dip = (_down and inst_net > TH_NEW_INST_NET and ind_net < 0)
+        output.append("新押し目判定：%s（%s）"
+                      % ("○ 構図あり" if new_dip else "非該当", _detail))
+
+        # V列：要注意（新押し目が○の日だけ点灯。買い判断から外さず、印として記録する）
+        if not new_dip:
+            output.append("要注意判定：−（新押し目が非該当）")
+        else:
+            caution = (close_pos < TH_CAUTION_POS and twap_count >= TH_CAUTION_TWAP)
+            output.append("要注意判定：%s（終値位置%.3f・TWAP%d件）"
+                          % ("要注意" if caution else "−", close_pos, twap_count))
+
+        # W列：逆行吸収（補助）
+        _ih_net = r1(r1(ih_buy_pct) - r1(ih_sell_pct))
+        _ih_net_prev = r1(PREV['ih_buy'] - PREV['ih_sell'])
+        _d_ih = r1(_ih_net - _ih_net_prev)
+        absorb_rev = (_down and _d_ih >= TH_ABSORB_REV_PT)
+        output.append("逆行吸収判定（補助）：%s（機関高ネット 前日%+.1f→当日%+.1f：%+.1fpt）"
+                      % ("○" if absorb_rev else "−", _ih_net_prev, _ih_net, _d_ih))
+
+        # I列：機関売り撤収 → X列：機関吸収型押し目（補助）
+        _d_ih_sell = r1(PREV['ih_sell'] - r1(ih_sell_pct))
+        sell_out = (_d_ih_sell >= TH_SELL_OUT_PT and r1(ih_buy_pct) >= PREV['ih_buy'])
+        absorb_inst = (_down and sell_out and ind_net < 0)
+        output.append("機関吸収型押し目判定（補助）：%s（機関売り撤収%s：機関高売り 前日%.1f→当日%.1f、"
+                      "機関高買い 前日%.1f→当日%.1f）"
+                      % ("○" if absorb_inst else "−", "○" if sell_out else "−",
+                         PREV['ih_sell'], r1(ih_sell_pct), PREV['ih_buy'], r1(ih_buy_pct)))
+
+    output.append("※ 逆行吸収と機関吸収型押し目は補助です。単独で買い判断に使わず、"
+                  "新押し目と並べて記録・比較してください。")
+    output.append("※ 要注意は新押し目を打ち消すものではありません。印として記録し、"
+                  "総合的に判断するための列です。")
 
     output.append("")
     output.append("【前日データの出典】")

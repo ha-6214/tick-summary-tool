@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>歩み値集計</title>
+<title>歩み値 一括集計</title>
 <style>
   :root{
     --bg:#f5f6f8; --card:#fff; --ink:#1a1f2b; --muted:#667085; --border:#e3e6eb;
@@ -14,318 +14,294 @@
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
        line-height:1.6;-webkit-text-size-adjust:100%;padding:20px 14px 60px}
-  .wrap{max-width:760px;margin:0 auto}
+  .wrap{max-width:820px;margin:0 auto}
   .head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:14px;flex-wrap:wrap}
   h1{font-size:1.2rem;margin:0;font-weight:600}
   .ver{font-family:var(--mono);font-size:.75rem;color:var(--muted)}
   .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px}
-  .step{font-size:.82rem;color:var(--muted);font-weight:600;margin-bottom:6px}
-  .filebox{border:1.5px dashed var(--border);border-radius:10px;padding:12px;background:#fafbfc;
-           display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-  .fileinput{display:block;width:100%;order:-1;margin-bottom:6px}
-  code{font-family:var(--mono);font-size:.78rem;background:#eef1f6;padding:1px 6px;border-radius:5px;color:var(--ink)}
-  .fname{font-family:var(--mono);font-size:.78rem;color:var(--accent);word-break:break-all}
-  input[type=file]{font:inherit;font-size:.8rem;max-width:100%}
-  textarea{width:100%;font-family:var(--mono);font-size:.8rem;padding:10px;border:1px solid var(--border);
-           border-radius:9px;background:#fff;color:var(--ink);resize:vertical;min-height:5.5em}
-  #prevText{min-height:16em}
-  #meta{min-height:10em}
-  textarea:focus{outline:2px solid var(--accent);outline-offset:1px}
+  .step{font-size:.82rem;color:var(--muted);font-weight:600;margin-bottom:6px;
+        display:flex;justify-content:space-between;align-items:center;gap:10px}
+  .clr{font:inherit;font-size:.76rem;font-weight:600;padding:4px 10px;border-radius:7px;
+       background:#fff;border:1px solid var(--border);color:var(--muted);cursor:pointer}
+  .clr:hover{color:var(--ink)}
+  .filebox{border:1.5px dashed var(--border);border-radius:10px;padding:12px;background:#fafbfc;margin-bottom:14px}
+  .filebox:last-child{margin-bottom:0}
+  input[type=file]{font:inherit;font-size:.8rem;max-width:100%;display:block;width:100%}
+  .fname{font-family:var(--mono);font-size:.78rem;color:var(--accent);word-break:break-all;display:block;margin-top:6px}
+  code{font-family:var(--mono);font-size:.78rem;background:#eef1f6;padding:1px 6px;border-radius:5px}
   .note{font-size:.78rem;color:var(--muted);margin-top:6px}
   button{font:inherit;font-weight:600;cursor:pointer;border-radius:9px;border:1px solid transparent;
          padding:11px 20px;transition:background .15s,opacity .15s}
   .run{background:var(--accent);color:#fff;font-size:.98rem}
   .run:hover:not(:disabled){background:var(--accent-h)}
   .run:disabled{opacity:.45;cursor:default}
-  .ghost{background:#fff;border-color:var(--border);color:var(--ink);padding:8px 14px;font-size:.84rem}
-  .actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .ghost{background:#fff;border-color:var(--border);color:var(--ink);padding:9px 15px;font-size:.85rem}
+  .actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
   .status{font-size:.84rem;color:var(--muted)}
   .status.ok{color:var(--ok)} .status.err{color:var(--warn);white-space:pre-wrap}
   .readback{background:#f7f9fc;border-radius:9px;padding:10px 12px;margin-top:10px;font-size:.8rem;
-            white-space:pre-wrap;font-family:var(--mono);color:var(--ink)}
+            white-space:pre-wrap;font-family:var(--mono)}
   .rb-warn{color:var(--amber)}
-  .rhead{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap}
-  pre.out{-webkit-user-select:text;user-select:text;background:#0f1420;color:#e6e9f0;font-family:var(--mono);font-size:.76rem;line-height:1.55;
-          padding:14px;border-radius:10px;overflow:auto;max-height:56vh;margin:0;white-space:pre}
+  .bar{height:8px;background:#e9ecf2;border-radius:6px;overflow:hidden;margin:10px 0 6px}
+  .bar > i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+  table{width:100%;border-collapse:collapse;font-size:.78rem;margin-top:8px}
+  th,td{border-bottom:1px solid var(--border);padding:5px 6px;text-align:left;white-space:nowrap}
+  th{color:var(--muted);font-weight:600}
+  td.num{text-align:right;font-family:var(--mono)}
+  tr.err td{color:var(--warn)}
+  .scroll{overflow:auto;max-height:46vh}
   .hidden{display:none}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="head">
-    <h1>歩み値集計</h1>
-    <span class="ver" id="ver">ルール版 読み込み中</span>
+    <h1>歩み値 一括集計</h1>
+    <span class="ver" id="ver">読み込み中</span>
   </div>
 
   <div class="card">
-    <div class="step">① 歩み値CSV</div>
+    <div class="step"><span>① 銘柄マスタ（master-stocks.md）</span><button class="clr" id="cMaster">クリア</button></div>
     <div class="filebox">
-      <input type="file" id="csv" class="fileinput">
-      <span class="fname" id="fcsv">未選択</span>
-      <button class="ghost" id="csvClear" style="margin-left:auto">クリア</button>
+      <input type="file" id="fMaster">
+      <span class="fname" id="nMaster">未選択</span>
     </div>
-    <div class="note">「Download」フォルダの <code id="csvHint">qr-（銘柄コード）-（最新日付）.csv</code> を選びます。</div>
 
-    <div class="step" style="margin-top:16px;display:flex;justify-content:space-between;align-items:center">
-      <span>② 銘柄情報（そのまま貼り付け）</span>
-      <button class="ghost" id="metaClear">クリア</button>
+    <div class="step"><span>② 前日データ（省略可・JSONまたはMD／複数選択できます）</span><button class="clr" id="cPrev">クリア</button></div>
+    <div class="filebox">
+      <input type="file" id="fPrev" multiple>
+      <span class="fname" id="nPrev">未選択</span>
     </div>
-    <textarea id="meta" rows="9" placeholder="日付: 2026年7月22日&#10;銘柄コード: 5802&#10;銘柄名称: 住友電工&#10;年初来高値: 3019&#10;年初来高値の日付: 2026年6月30日&#10;信用売れ残: 978500&#10;信用買い残: 11451200&#10;信用倍率: 11.70"></textarea>
 
-    <div class="step" style="margin-top:16px;display:flex;justify-content:space-between;align-items:center">
-      <span>③ 前日データ（省略可）</span>
-      <span style="display:flex;gap:8px">
-        <button class="ghost" id="prevBig">表示を広げる</button>
-        <button class="ghost" id="prevClear">クリア</button>
-      </span>
+    <div class="step"><span>③ 当日の歩み値CSV（まとめて選びます）</span><button class="clr" id="cCsv">クリア</button></div>
+    <div class="filebox">
+      <input type="file" id="fCsv" multiple>
+      <span class="fname" id="nCsv">未選択</span>
     </div>
-    <div class="filebox" style="margin-bottom:8px">
-      <input type="file" id="prev" class="fileinput">
-      <span class="fname" id="fprev">未選択</span>
-    </div>
-    <div class="note" style="margin:0 0 8px"><code id="prevHint">「Summary」フォルダの summary-（銘柄コード）-（前日）.md を選びます。</code></div>
-    <textarea id="prevText" rows="12" placeholder="ファイルを選ぶ代わりに、前日の集計結果や分析結果をそのまま貼り付けても構いません。貼り付け行（15項目）だけでも読み取ります。"></textarea>
-    <div class="note">空にすると、前日比が必要な判定は「判定不能」になります。銘柄コードや日付が当日と合わない場合は集計を止めます。</div>
+    <div class="note">ファイル名は <code>qr-銘柄コード-日付.csv</code> の形を読み取ります。</div>
 
-    <div class="actions" style="margin-top:16px">
-      <button class="run" id="run" disabled>集計する</button>
-      <span class="status" id="status">実行環境を準備しています…</span>
+    <div class="actions" style="margin-top:14px">
+      <button class="ghost" id="btnClearAll">すべてクリア</button>
+      <button class="ghost" id="btnCheck" disabled>事前確認</button>
+      <button class="run" id="btnRun" disabled>一括集計</button>
+      <span class="status" id="msg"></span>
     </div>
     <div class="readback hidden" id="readback"></div>
   </div>
 
-  <div class="card hidden" id="resCard">
-    <div class="rhead">
-      <span class="step" style="margin:0;display:flex;align-items:center;gap:8px">
-        集計結果
-        <span id="histNav" class="hidden" style="display:inline-flex;align-items:center;gap:6px">
-          <button class="ghost" id="histPrev" style="padding:4px 10px">◀ 1つ前</button>
-          <span id="histPos" style="font-size:.8rem;color:var(--muted)"></span>
-          <button class="ghost" id="histNext" style="padding:4px 10px">次 ▶</button>
-        </span>
-      </span>
-      <span style="display:flex;gap:8px">
-        <button class="ghost" id="copy">コピー</button>
-        <button class="ghost hidden" id="share">共有</button>
-        <button class="ghost" id="save">MDで保存</button>
-      </span>
+  <div class="card hidden" id="progCard">
+    <div class="step">進み具合</div>
+    <div class="bar"><i id="bar"></i></div>
+    <div class="status" id="prog"></div>
+    <div class="scroll"><table id="tbl">
+      <thead><tr><th>コード</th><th>銘柄</th><th class="num">買い</th><th class="num">売り</th><th class="num">機関ネット</th><th class="num">個人ネット</th><th>新押し目</th><th>要注意</th><th>旧押し目</th><th>状態</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+  </div>
+
+  <div class="card hidden" id="outCard">
+    <div class="step">書き出し</div>
+    <div class="status ok" id="outMsg"></div>
+    <div class="actions" style="margin-top:10px">
+      <button class="ghost" id="dlCsv">転記用CSV</button>
+      <button class="ghost" id="dlJson">前日データJSON</button>
+      <button class="ghost" id="dlZip">銘柄ごとMD（ZIP）</button>
     </div>
-    <pre class="out" id="out"></pre>
+    <div class="note">保存できないときは、同じボタンをもう一度押すと共有の画面が開きます。</div>
   </div>
 </div>
 
-<script src="./pyodide/pyodide.js"></script>
+<script src="../pyodide/pyodide.js"></script>
 <script>
-var PY_SRC = null, pyodide = null, csvBytes = null, outName = "summary.md";
-var $ = function(id){ return document.getElementById(id); };
+const $ = (id) => document.getElementById(id);
+let py = null, out = null, running = false;
+const files = { master: null, prev: [], csv: [] };
+const doneNames = new Set();
 
-function setStatus(msg, cls){ $("status").textContent = msg; $("status").className = "status" + (cls ? " " + cls : ""); }
+function setMsg(t, cls){ const m=$('msg'); m.textContent=t; m.className='status'+(cls?' '+cls:''); }
+function showRB(lines){ const r=$('readback'); r.classList.remove('hidden'); r.textContent=lines.join('\n'); }
 
-function refresh(){ $("run").disabled = !(pyodide && PY_SRC && csvBytes && $("meta").value.trim()); }
-
-$("csv").addEventListener("change", async function(e){
-  var f = e.target.files[0];
-  if(!f){ csvBytes = null; $("fcsv").textContent = "未選択"; refresh(); return; }
-  $("fcsv").textContent = f.name;
-  csvBytes = new Uint8Array(await f.arrayBuffer());
-  window.__csvName = f.name;
-  refresh();
-});
-
-$("prev").addEventListener("change", async function(e){
-  var f = e.target.files[0];
-  if(!f){ return; }
-  $("fprev").textContent = f.name;
-  $("prevText").value = await f.text();
-  window.__prevName = f.name;
-});
-
-$("prevText").addEventListener("input", function(){
-  if($("fprev").textContent !== "未選択"){
-    $("fprev").textContent = "未選択（貼り付けを使用）";
-    window.__prevName = "";
-  }
-});
-
-function readCode(){
-  var m = $("meta").value.match(/(?:銘柄コード|コード|証券コード)\s*[:：]\s*['"]?([0-9A-Za-z]{3,5})/);
-  return m ? m[1] : null;
-}
-function updateHints(){
-  var code = readCode() || "（銘柄コード）";
-  $("csvHint").textContent = "qr-" + code + "-（最新日付）.csv";
-  $("prevHint").textContent = "「Summary」フォルダの summary-" + code + "-（前日）.md を選びます。";
-}
-$("meta").addEventListener("input", function(){ refresh(); updateHints(); });
-updateHints();
-
-$("csvClear").addEventListener("click", function(){
-  $("csv").value = ""; csvBytes = null; $("fcsv").textContent = "未選択";
-  setStatus("CSVをクリアしました。"); refresh();
-});
-$("metaClear").addEventListener("click", function(){ $("meta").value = ""; refresh(); });
-$("prevBig").addEventListener("click", function(){
-  var el = $("prevText");
-  var big = el.style.minHeight === "32em";
-  el.style.minHeight = big ? "16em" : "32em";
-  $("prevBig").textContent = big ? "表示を広げる" : "表示を戻す";
-});
-
-$("prevClear").addEventListener("click", function(){
-  $("prev").value = ""; $("prevText").value = ""; $("fprev").textContent = "未選択";
-  window.__prevName = "";
-  setStatus("前日データをクリアしました。当日分のみで集計します。");
-});
-
-async function init(){
-  try{
-    setStatus("実行環境を読み込んでいます…");
-    pyodide = await loadPyodide({ indexURL: "./pyodide/" });
-    var r = await fetch("./tick_value_summary.py?v=" + Date.now());
-    if(!r.ok){ throw new Error("集計スクリプトを読み込めませんでした。"); }
-    PY_SRC = await r.text();
-    var m = PY_SRC.match(/RULE_VERSION\s*=\s*"([^"]+)"/);
-    $("ver").textContent = "ルール版 " + (m ? m[1] : "不明");
-    setStatus("準備完了。CSVと銘柄情報を入れてください。", "ok");
-    refresh();
-  }catch(err){
-    setStatus("準備に失敗しました。\n" + (err && err.message ? err.message : err), "err");
-  }
+async function boot(){
+  setMsg('集計の部品を読み込んでいます…');
+  py = await loadPyodide({ indexURL: '../pyodide/' });
+  const bust = '?t=' + Date.now();
+  const engine = await (await fetch('../tick_value_summary.py' + bust, { cache: 'no-store' })).text();
+  const runner = await (await fetch('./batch_runner.py' + bust, { cache: 'no-store' })).text();
+  py.FS.writeFile('/home/pyodide/batch_runner.py', runner);
+  py.runPython('import sys; sys.path.insert(0, "/home/pyodide")');
+  py.globals.set('ENGINE_SRC', engine);
+  const info = py.runPython(`
+import json, batch_runner as B
+json.dumps(B.load_engine(ENGINE_SRC))`);
+  const v = JSON.parse(info);
+  $('ver').textContent = 'ルール版 ' + v.rule_version + ' ／ 係 ' + (v.runner_version || '不明');
+  setMsg('ファイルを選んでください');
+  $('btnCheck').disabled = false;
 }
 
-$("run").addEventListener("click", function(){
-  if(!pyodide || !csvBytes) return;
-  $("run").disabled = true;
-  setStatus("集計しています…");
-  $("readback").classList.add("hidden");
-  setTimeout(function(){
-    try{
-      pyodide.FS.writeFile("/data.csv", csvBytes);
-      pyodide.FS.writeFile("/meta.txt", new TextEncoder().encode($("meta").value));
-      var argv = ["tick_value_summary.py", "/data.csv", "--meta=/meta.txt", "--markers"];
-      if(window.__csvName){ argv.push("--csv_name=" + window.__csvName); }
-      var pv = $("prevText").value.trim();
-      if(pv){
-        pyodide.FS.writeFile("/prev.md", new TextEncoder().encode(pv));
-        argv.push("--prev=/prev.md");
-        if(window.__prevName){ argv.push("--prev_name=" + window.__prevName); }
-      }
-      pyodide.globals.set("_ARGV", argv);
-      pyodide.globals.set("_SRC", PY_SRC);
-      var res = pyodide.runPython([
-        "import sys, io",
-        "sys.argv = list(_ARGV)",
-        "_b = io.StringIO(); _s = sys.stdout; sys.stdout = _b",
-        "try:",
-        "    exec(compile(_SRC, 'tick_value_summary.py', 'exec'), {'__name__': '__main__'})",
-        "except SystemExit:",
-        "    pass",
-        "finally:",
-        "    sys.stdout = _s",
-        "_b.getvalue()"
-      ].join("\n"));
-      show(res);
-    }catch(err){
-      setStatus("集計中にエラーが発生しました。\n" + (err && err.message ? err.message : err), "err");
-    }finally{
-      refresh();
-    }
-  }, 30);
-});
-
-var HISTORY = [];      // このタブを開いている間だけの履歴
-var histIdx = -1;      // 今表示している履歴の位置
-
-function render(item){
-  $("out").textContent = item.body;
-  var el = $("readback");
-  el.textContent = item.readback;
-  el.className = "readback" + (item.readback.indexOf("使わなかった項目") >= 0 || item.readback.indexOf("なし（") >= 0 ? " rb-warn" : "");
-  el.classList.remove("hidden");
-  outName = item.name;
-  $("save").textContent = outName + " で保存";
-  $("resCard").classList.remove("hidden");
-  updateHistNav();
-}
-
-function updateHistNav(){
-  var n = HISTORY.length;
-  if(n <= 1){ $("histNav").classList.add("hidden"); return; }
-  $("histNav").classList.remove("hidden");
-  $("histPos").textContent = (histIdx + 1) + " / " + n + " 件目";
-  $("histPrev").disabled = (histIdx <= 0);
-  $("histNext").disabled = (histIdx >= n - 1);
-}
-
-function show(res){
-  if(res.indexOf("<<<ERROR>>>") === 0){
-    setStatus("集計を中止しました。\n" + res.replace("<<<ERROR>>>", "").trim(), "err");
-    return;   // エラー時は履歴に積まず、直前の表示を残す
-  }
-  var i1 = res.indexOf("<<<READBACK>>>"), i2 = res.indexOf("<<<BODY>>>");
-  if(i1 < 0 || i2 < 0){ setStatus("出力の形式が想定と違います。", "err"); return; }
-  var item = {
-    name: (res.substring(res.indexOf("\n") + 1, i1).trim() || "summary.md"),
-    readback: res.substring(i1 + 14, i2).trim(),
-    body: res.substring(i2 + 10).replace(/^\n/, "")
-  };
-  HISTORY.push(item);
-  if(HISTORY.length > 50){ HISTORY.shift(); }   // 上限50件（タブを閉じると消える）
-  histIdx = HISTORY.length - 1;
-  render(item);
-  setStatus("集計が完了しました。", "ok");
-  $("resCard").scrollIntoView({behavior:"smooth", block:"start"});
-}
-
-$("histPrev").addEventListener("click", function(){
-  if(histIdx > 0){ histIdx--; render(HISTORY[histIdx]); setStatus("履歴を表示中（" + (histIdx+1) + " / " + HISTORY.length + " 件目）"); }
-});
-$("histNext").addEventListener("click", function(){
-  if(histIdx < HISTORY.length - 1){ histIdx++; render(HISTORY[histIdx]); setStatus("履歴を表示中（" + (histIdx+1) + " / " + HISTORY.length + " 件目）"); }
-});
-
-$("copy").addEventListener("click", function(){
-  var text = $("out").textContent;
-  var ok = legacyCopy(text);
-  if(ok){
-    $("copy").textContent = "コピーしました";
-    setTimeout(function(){ $("copy").textContent = "コピー"; }, 1600);
-    return;
-  }
-  if(navigator.clipboard && window.isSecureContext){
-    navigator.clipboard.writeText(text).then(function(){
-      $("copy").textContent = "コピーしました";
-      setTimeout(function(){ $("copy").textContent = "コピー"; }, 1600);
-    }).catch(function(){
-      selectOutput();
-      $("copy").textContent = "全選択しました";
-      setStatus("長押しして「コピー」を選んでください。うまくいかない場合は「共有」または「MDで保存」をお使いください。");
-      setTimeout(function(){ $("copy").textContent = "コピー"; }, 2600);
-    });
-    return;
-  }
-  selectOutput();
-  $("copy").textContent = "全選択しました";
-  setStatus("長押しして「コピー」を選んでください。うまくいかない場合は「共有」または「MDで保存」をお使いください。");
-  setTimeout(function(){ $("copy").textContent = "コピー"; }, 2600);
-});
-
-if(navigator.share){
-  $("share").classList.remove("hidden");
-  $("share").addEventListener("click", function(){
-    navigator.share({ title: outName, text: $("out").textContent }).catch(function(){});
+function pick(input, label, key, multi){
+  input.addEventListener('change', () => {
+    const fs = Array.from(input.files || []);
+    if (multi) { files[key] = fs; label.textContent = fs.length ? fs.length + '件' : '未選択'; }
+    else { files[key] = fs[0] || null; label.textContent = fs[0] ? fs[0].name : '未選択'; }
+    resetRun();
   });
 }
+pick($('fMaster'), $('nMaster'), 'master', false);
+pick($('fPrev'), $('nPrev'), 'prev', true);
+pick($('fCsv'), $('nCsv'), 'csv', true);
 
-$("save").addEventListener("click", function(){
-  var blob = new Blob(["\uFEFF" + $("out").textContent], {type:"text/markdown;charset=utf-8"});
-  var url = URL.createObjectURL(blob);
-  var a = document.createElement("a");
-  a.href = url; a.download = outName; a.click();
-  URL.revokeObjectURL(url);
+function clearOne(key){
+  const map = { master: ['fMaster', 'nMaster', false],
+                prev: ['fPrev', 'nPrev', true],
+                csv: ['fCsv', 'nCsv', true] };
+  const [inputId, labelId, multi] = map[key];
+  $(inputId).value = '';
+  files[key] = multi ? [] : null;
+  $(labelId).textContent = '未選択';
+  resetRun();
+}
+function resetRun(){
+  doneNames.clear();
+  out = null;
+  $('btnRun').disabled = true;
+  $('outCard').classList.add('hidden');
+  $('progCard').classList.add('hidden');
+  $('tbl').querySelector('tbody').innerHTML = '';
+  $('bar').style.width = '0';
+  $('prog').textContent = '';
+  $('readback').classList.add('hidden');
+  if (py) { try { py.runPython('B.reset_results()'); } catch (e) { /* 読み込み前は何もしない */ } }
+  setMsg('ファイルを選んでください');
+}
+$('cMaster').addEventListener('click', () => clearOne('master'));
+$('cPrev').addEventListener('click', () => clearOne('prev'));
+$('cCsv').addEventListener('click', () => clearOne('csv'));
+$('btnClearAll').addEventListener('click', () => {
+  if (running) { setMsg('集計の途中です。終わってからクリアしてください。', 'err'); return; }
+  clearOne('master'); clearOne('prev'); clearOne('csv');
 });
 
-init();
+async function loadInputs(){
+  if (!files.master) throw new Error('銘柄マスタを選んでください');
+  if (!files.csv.length) throw new Error('歩み値CSVを選んでください');
+  py.globals.set('MASTER_MD', await files.master.text());
+  const m = JSON.parse(py.runPython('json.dumps(B.load_master(MASTER_MD))'));
+
+  const prev = [];
+  for (const f of files.prev) prev.push({ name: f.name, text: await f.text() });
+  py.globals.set('PREV_JSON', JSON.stringify(prev));
+  const p = JSON.parse(py.runPython('json.dumps(B.load_prev(json.loads(PREV_JSON)))'));
+
+  py.globals.set('CSV_NAMES', JSON.stringify(files.csv.map(f => f.name)));
+  const c = JSON.parse(py.runPython('json.dumps(B.check(json.loads(CSV_NAMES)))'));
+  return { m, p, c };
+}
+
+$('btnCheck').addEventListener('click', async () => {
+  try {
+    setMsg('確認しています…');
+    const { m, p, c } = await loadInputs();
+    const L = [];
+    L.push('銘柄マスタ: ' + m.count + '件（版 ' + (m.master_version || '不明') + '）');
+    L.push('歩み値CSV: ' + c.files + '件 ／ 銘柄 ' + c.codes + '件');
+    L.push('対象日: ' + (c.today || '読み取れません'));
+    L.push('前日データ: ' + p.count + '件（今回の対象で ' + c.prev_found + '件）');
+    L.push('判定の正本は集計ブックです。画面とMDの判定は参考の値です。');
+    const warn = [];
+    if (c.duplicated.length) warn.push('銘柄コードの重複: ' + c.duplicated.join('、'));
+    if (c.not_in_master.length) warn.push('マスタに未登録: ' + c.not_in_master.join('、'));
+    if (c.name_unreadable.length) warn.push('ファイル名を読めません: ' + c.name_unreadable.join('、'));
+    if (Object.keys(c.dates).length > 1) warn.push('日付が混ざっています: ' + Object.keys(c.dates).join('、'));
+    if (c.prev_missing.length) warn.push('前日データなし（当日分だけで集計）: ' + c.prev_missing.length + '件');
+    if (c.prev_no_close && c.prev_no_close.length) warn.push('前日データに終値がない（新押し目などが判定不能）: '
+      + c.prev_no_close.length + '件');
+    if (c.rule_mismatch.length) warn.push('集計ルールの版が違う前日データ: ' + c.rule_mismatch.join('、'));
+    if (p.conflicts.length) warn.push('前日のJSONとMDで値が違う銘柄: ' + p.conflicts.join('、'));
+    if (p.unreadable.length) warn.push('読めなかった前日ファイル: ' + p.unreadable.join(' / '));
+    if (warn.length) L.push('', '注意:'); warn.forEach(w => L.push('  ・' + w));
+    showRB(L);
+    if (c.duplicated.length) { setMsg('銘柄コードが重複しています。集計できません。', 'err'); return; }
+    $('btnRun').disabled = false;
+    setMsg('確認しました。集計できます。', 'ok');
+  } catch (e) { setMsg(String(e.message || e), 'err'); }
+});
+
+$('btnRun').addEventListener('click', async () => {
+  if (running) return;
+  running = true; $('btnRun').disabled = true; $('btnCheck').disabled = true;
+  $('progCard').classList.remove('hidden');
+  const tb = $('tbl').querySelector('tbody');
+  if (!doneNames.size) { tb.innerHTML = ''; py.runPython('B.reset_results()'); }
+  const total = files.csv.length;
+  let n = doneNames.size, err = 0;
+  try {
+    for (const f of files.csv) {
+      if (doneNames.has(f.name)) continue;
+      $('prog').textContent = (n + 1) + ' / ' + total + '　' + f.name;
+      py.globals.set('CSV_NAME', f.name);
+      py.globals.set('CSV_TEXT', await f.text());
+      const r = JSON.parse(py.runPython('json.dumps(B.run_one(CSV_NAME, CSV_TEXT))'));
+      const tr = document.createElement('tr');
+      if (r.status !== '完了') { tr.className = 'err'; err++; }
+      tr.innerHTML = '<td>' + r.code + '</td><td>' + (r.name || '') + '</td>'
+        + '<td class="num">' + (r.buy_score ?? '') + '</td>'
+        + '<td class="num">' + (r.sell_score ?? '') + '</td>'
+        + '<td class="num">' + (r.inst_net ?? '') + '</td>'
+        + '<td class="num">' + (r.ind_net ?? '') + '</td>'
+        + '<td>' + ((r.dip_new || '').indexOf('構図あり') >= 0 ? '○' : '') + '</td>'
+        + '<td>' + ((r.caution || '').indexOf('要注意') === 0 ? '要注意' : '') + '</td>'
+        + '<td>' + ((r.dip_buy || '').indexOf('構図あり') >= 0 ? '○' : '') + '</td>'
+        + '<td>' + (r.status === '完了' ? '完了' : (r.error || 'エラー')) + '</td>';
+      tb.appendChild(tr);
+      doneNames.add(f.name);
+      n++;
+      $('bar').style.width = (n / total * 100) + '%';
+      await new Promise(res => setTimeout(res, 0));
+    }
+    out = JSON.parse(py.runPython('json.dumps(B.finalize())'));
+    $('outCard').classList.remove('hidden');
+    const sm = out.summary;
+    $('outMsg').textContent = '対象 ' + sm.target + '件 ／ 完了 ' + sm.done
+      + '件 ／ エラー ' + sm.error + '件'
+      + '　新押し目 ' + sm.dip_new_candidates.length + '件'
+      + '（うち要注意 ' + sm.caution.length + '件）'
+      + '　逆行吸収 ' + sm.absorb_reverse.length + '件'
+      + '　機関吸収型 ' + sm.absorb_inst.length + '件'
+      + '　旧押し目 ' + sm.dip_buy_candidates.length + '件';
+    $('prog').textContent = '集計が終わりました。';
+    setMsg('集計が終わりました。', 'ok');
+  } catch (e) {
+    setMsg('途中で止まりました: ' + String(e.message || e) + '（もう一度「一括集計」を押すと続きから進みます）', 'err');
+    $('btnRun').disabled = false;
+  } finally {
+    running = false; $('btnCheck').disabled = false;
+  }
+});
+
+function b64ToBytes(b64){
+  const bin = atob(b64); const a = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i);
+  return a;
+}
+async function give(name, data, type, bom){
+  const blob = (typeof data === 'string')
+    ? new Blob(bom ? [new Uint8Array([0xEF,0xBB,0xBF]), data] : [data], { type })
+    : new Blob([data], { type });
+  const file = new File([blob], name, { type });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); return; } catch (e) { /* 保存に切り替える */ }
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+}
+$('dlCsv').addEventListener('click', () => out && give(out.csv_name, out.csv, 'text/csv', true));
+$('dlJson').addEventListener('click', () => out && give(out.json_name, out.json, 'application/json'));
+$('dlZip').addEventListener('click', () => out && give(out.zip_name, b64ToBytes(out.zip_b64), 'application/zip'));
+
+boot().catch(e => setMsg('読み込みに失敗しました: ' + e, 'err'));
 </script>
 </body>
 </html>
