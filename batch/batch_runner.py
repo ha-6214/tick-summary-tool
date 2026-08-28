@@ -25,7 +25,7 @@ import sys
 import zipfile
 from datetime import datetime, timezone, timedelta
 
-RUNNER_VERSION = "v1.3"
+RUNNER_VERSION = "v1.4"
 SCHEMA_VERSION = "1.0"
 
 # 集計ルールの互換の区分。判定に使う数値の意味が変わる改定のときだけ、
@@ -33,6 +33,9 @@ SCHEMA_VERSION = "1.0"
 RULE_COMPAT = {
     "v1.13": "A",
     "v1.14": "A",
+    # v1.15 で判定と買いスコアを見直したが、貼り付け15項目の中身は変えていない。
+    # そのため前日データはv1.14のものをそのまま使える。
+    "v1.15": "A",
 }
 DEFAULT_COMPAT = "A"
 
@@ -173,9 +176,12 @@ def _prev_from_json(text, source):
         row = st.get('paste1')
         if not row or len(row) != 15:
             continue
+        row2 = st.get('paste2')
+        row2 = [float(x) for x in row2] if row2 and len(row2) == 6 else None
         got[str(st.get('code'))] = {
             'date': data.get('date', ''),
             'row15': [float(x) for x in row],
+            'row6': row2,
             'rule_version': st.get('rule_version', rv),
             'source': source,
             'kind': 'JSON',
@@ -193,18 +199,31 @@ def _prev_from_md(text, source):
             if ':' in line:
                 k, v = line.split(':', 1)
                 head[k.strip()] = v.strip().strip('\'"')
+    def _nums(line, n):
+        parts = line.replace('\t', ' ').split()
+        if len(parts) != n:
+            return None
+        try:
+            return [float(p.replace(',', '')) for p in parts]
+        except ValueError:
+            return None
+
     row = None
+    row2 = None
     for i, line in enumerate(lines):
         if '貼り付け' in line:
             for cand in lines[i + 1:i + 6]:
-                parts = cand.replace('\t', ' ').split()
-                if len(parts) == 15:
-                    try:
-                        row = [float(p.replace(',', '')) for p in parts]
+                if row is None:
+                    got15 = _nums(cand, 15)
+                    if got15:
+                        row = got15
                         break
-                    except ValueError:
-                        pass
-        if row:
+                if row2 is None:
+                    got6 = _nums(cand, 6)
+                    if got6:
+                        row2 = got6
+                        break
+        if row is not None and row2 is not None:
             break
     code = str(head.get('code') or head.get('ticker') or '').strip()
     if not code:
@@ -213,6 +232,7 @@ def _prev_from_md(text, source):
     if not code or row is None:
         return {}
     return {code: {'date': _norm_date(head.get('date', '')), 'row15': row,
+                   'row6': row2,
                    'rule_version': head.get('rule_version', ''),
                    'source': source, 'kind': 'MD'}}
 
@@ -240,12 +260,22 @@ def load_prev(files):
             elif old['kind'] == 'JSON' and v['kind'] == 'MD':
                 if old['row15'] != v['row15']:
                     conflicts.append(code)
+                elif old.get('row6') and v.get('row6') and old['row6'] != v['row6']:
+                    conflicts.append(code)
+                if not old.get('row6') and v.get('row6'):
+                    old['row6'] = v['row6']
             else:
                 if old['kind'] == 'MD' and v['kind'] == 'JSON':
                     if old['row15'] != v['row15']:
                         conflicts.append(code)
+                    elif old.get('row6') and v.get('row6') and old['row6'] != v['row6']:
+                        conflicts.append(code)
+                    if not v.get('row6') and old.get('row6'):
+                        v['row6'] = old['row6']
                     _PREV[code] = v
-    return {"count": len(_PREV), "conflicts": sorted(set(conflicts)), "unreadable": bad}
+    no_close = sorted(c for c, v in _PREV.items() if not v.get('row6'))
+    return {"count": len(_PREV), "conflicts": sorted(set(conflicts)),
+            "unreadable": bad, "no_close": no_close}
 
 
 # ============================================================
@@ -283,6 +313,8 @@ def check(csv_names):
         "today": _TODAY,
         "prev_found": len(seen) - len(no_prev),
         "prev_missing": sorted(no_prev),
+        "prev_no_close": sorted(c for c in seen
+                                if _PREV.get(c) and not _PREV[c].get('row6')),
         "rule_mismatch": sorted(mismatch),
         "master_count": len(_MASTER),
     }
@@ -317,8 +349,9 @@ def _run_engine(csv_name, csv_text, info, prev):
     argv = ['tick_value_summary.py', csv_path, '--meta=' + meta_path,
             '--csv_name=' + csv_name, '--markers']
     if prev:
+        _row = list(prev['row15']) + list(prev.get('row6') or [])
         argv.append('--prev_row=' + '\t'.join(
-            ('%d' % v) if float(v) == int(v) else ('%.1f' % v) for v in prev['row15']))
+            ('%d' % v) if float(v) == int(v) else ('%.1f' % v) for v in _row))
         if prev.get('date'):
             argv.append('--prev_date=' + prev['date'])
             argv.append('--prev_code=' + info.get('code', ''))
@@ -415,8 +448,8 @@ def _parse_body(text):
         'base': _pick(r'【買いスコア合計】基本(\d+)', text),
         'extra': _pick(r'【買いスコア合計】基本\d+ \+ 追加(\d+)', text),
         'counter_total': _pick(r'- 反証(\d+)', text),
-        'total': _pick(r'=\s*(-?\d+)/8点', text),
-        'max': 8,
+        'total': _pick(r'=\s*(-?\d+)/([78])点', text),
+        'max': _pick(r'=\s*-?\d+/([78])点', text),
         'judgment': _pick(r'【買い判定】(.+)', text, cast=lambda s: s.strip(), default=''),
     }
     d['counters'] = _items(r'【反証条件】',
@@ -492,8 +525,20 @@ def _parse_body(text):
         'zone_90': _pick(r'年初来高値の90%:\s*([\d,]+)円', text),
         'zone_85': _pick(r'年初来高値の85%:\s*([\d,]+)円', text),
     }
+    d['net_values'] = {
+        'inst_net': _pick(r'機関ネット率:\s*([+\-\d.]+)pt', text),
+        'ind_net': _pick(r'個人ネット率:\s*([+\-\d.]+)pt', text),
+        'close_position': _pick(r'終値位置:\s*([\d.]+)', text),
+        'twap_count': _pick(r'TWAP検出件数:\s*(\d+)件', text),
+    }
     d['judgments'] = {
         'dip_buy': _pick(r'押し目買い判定：(.+)', text, cast=lambda s: s.strip(), default=''),
+        'dip_new': _pick(r'新押し目判定：(.+)', text, cast=lambda s: s.strip(), default=''),
+        'caution': _pick(r'要注意判定：(.+)', text, cast=lambda s: s.strip(), default=''),
+        'absorb_reverse': _pick(r'逆行吸収判定（補助）：(.+)', text,
+                                cast=lambda s: s.strip(), default=''),
+        'absorb_inst': _pick(r'機関吸収型押し目判定（補助）：(.+)', text,
+                             cast=lambda s: s.strip(), default=''),
         'day_total': _pick(r'総合：(.+)', text, cast=lambda s: s.strip(), default=''),
         'reverse_signal': _pick(r'注意逆シグナル判定：(.+)', text,
                                 cast=lambda s: s.strip(), default=''),
@@ -554,6 +599,10 @@ def run_one(csv_name, csv_text):
     _RESULTS[code] = parsed
     return {"code": code, "name": parsed['name'], "status": "完了", "error": None,
             "dip_buy": parsed['judgments']['dip_buy'],
+            "dip_new": parsed['judgments']['dip_new'],
+            "caution": parsed['judgments']['caution'],
+            "inst_net": parsed['net_values']['inst_net'],
+            "ind_net": parsed['net_values']['ind_net'],
             "buy_score": parsed['buy_score']['total'],
             "sell_score": parsed['sell_score']['total']}
 
@@ -633,6 +682,16 @@ def finalize():
             'error_codes': err,
             'dip_buy_candidates': [c for c in done
                                    if '構図あり' in (_RESULTS[c]['judgments']['dip_buy'] or '')],
+            'dip_new_candidates': [c for c in done
+                                   if '構図あり' in (_RESULTS[c]['judgments']['dip_new'] or '')],
+            'caution': [c for c in done
+                        if '要注意' == (_RESULTS[c]['judgments']['caution'] or '')[:3]],
+            'absorb_reverse': [c for c in done
+                               if (_RESULTS[c]['judgments']['absorb_reverse'] or '').startswith('○')],
+            'absorb_inst': [c for c in done
+                            if (_RESULTS[c]['judgments']['absorb_inst'] or '').startswith('○')],
+            'prev_no_close': [c for c in done
+                              if '終値がないため判定不能' in (_RESULTS[c]['judgments']['dip_new'] or '')],
             'reverse_signal': [c for c in done
                                if '該当なし' not in (_RESULTS[c]['judgments']['reverse_signal'] or '')],
             'prev_missing': [c for c in done if not _RESULTS[c]['prev_source']['available']],
