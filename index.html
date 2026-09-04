@@ -214,6 +214,14 @@ $('btnCheck').addEventListener('click', async () => {
     L.push('対象日: ' + (c.today || '読み取れません'));
     L.push('前日データ: ' + p.count + '件（今回の対象で ' + c.prev_found + '件）');
     L.push('判定の正本は集計ブックです。画面とMDの判定は参考の値です。');
+    const errs = [];
+    if (c.csv_missing && c.csv_missing.length) {
+      const names = c.csv_missing.map(x => x.code + ' ' + (x.name || ''));
+      const shown = names.slice(0, 30).join('、');
+      errs.push('歩み値CSVがない銘柄: ' + names.length + '件 … ' + shown
+        + (names.length > 30 ? ' ほか' + (names.length - 30) + '件' : ''));
+    }
+    if (errs.length) { L.push('', 'エラー:'); errs.forEach(e => L.push('  ・' + e)); }
     const warn = [];
     if (c.duplicated.length) warn.push('銘柄コードの重複: ' + c.duplicated.join('、'));
     if (c.not_in_master.length) warn.push('マスタに未登録: ' + c.not_in_master.join('、'));
@@ -225,11 +233,16 @@ $('btnCheck').addEventListener('click', async () => {
     if (c.rule_mismatch.length) warn.push('集計ルールの版が違う前日データ: ' + c.rule_mismatch.join('、'));
     if (p.conflicts.length) warn.push('前日のJSONとMDで値が違う銘柄: ' + p.conflicts.join('、'));
     if (p.unreadable.length) warn.push('読めなかった前日ファイル: ' + p.unreadable.join(' / '));
-    if (warn.length) L.push('', '注意:'); warn.forEach(w => L.push('  ・' + w));
+    if (warn.length) { L.push('', '注意:'); warn.forEach(w => L.push('  ・' + w)); }
     showRB(L);
     if (c.duplicated.length) { setMsg('銘柄コードが重複しています。集計できません。', 'err'); return; }
     $('btnRun').disabled = false;
-    setMsg('確認しました。集計できます。', 'ok');
+    if (errs.length) {
+      setMsg('歩み値CSVがない銘柄が ' + c.csv_missing.length + ' 件あります。'
+        + '内容を確かめてください（このまま集計もできます）。', 'err');
+    } else {
+      setMsg('確認しました。集計できます。', 'ok');
+    }
   } catch (e) { setMsg(String(e.message || e), 'err'); }
 });
 
