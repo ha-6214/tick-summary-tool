@@ -25,7 +25,7 @@ import sys
 import zipfile
 from datetime import datetime, timezone, timedelta
 
-RUNNER_VERSION = "v1.4"
+RUNNER_VERSION = "v1.5"
 SCHEMA_VERSION = "1.0"
 
 # 集計ルールの互換の区分。判定に使う数値の意味が変わる改定のときだけ、
@@ -311,6 +311,9 @@ def check(csv_names):
         if code not in _MASTER:
             unknown.append(code)
     _TODAY = max(dates.keys()) if dates else ''
+    # マスタに登録があるのに、当日の歩み値CSVが渡されていない銘柄
+    csv_missing = [{"code": c, "name": _MASTER[c].get('name', '')}
+                   for c in sorted(_MASTER) if c not in seen]
     no_prev = [c for c in seen if c not in _PREV]
     mismatch = []
     for c in seen:
@@ -322,6 +325,7 @@ def check(csv_names):
         "codes": len(seen),
         "duplicated": sorted(set(dup)),
         "not_in_master": sorted(set(unknown)),
+        "csv_missing": csv_missing,
         "name_unreadable": unmatched,
         "dates": {k: len(v) for k, v in sorted(dates.items())},
         "today": _TODAY,
