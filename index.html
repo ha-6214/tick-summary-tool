@@ -113,6 +113,7 @@
 
 <script src="../pyodide/pyodide.js"></script>
 <script>
+const PAGE_VERSION = 'v1.1';   // 画面（index.html）の版。差し替えたら1つ上げる
 const $ = (id) => document.getElementById(id);
 let py = null, out = null, running = false;
 const files = { master: null, prev: [], csv: [] };
@@ -134,7 +135,8 @@ async function boot(){
 import json, batch_runner as B
 json.dumps(B.load_engine(ENGINE_SRC))`);
   const v = JSON.parse(info);
-  $('ver').textContent = 'ルール版 ' + v.rule_version + ' ／ 係 ' + (v.runner_version || '不明');
+  $('ver').textContent = 'ルール版 ' + v.rule_version + ' ／ 係 ' + (v.runner_version || '不明')
+    + ' ／ 画面 ' + PAGE_VERSION;
   setMsg('ファイルを選んでください');
   $('btnCheck').disabled = false;
 }
